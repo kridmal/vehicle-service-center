@@ -1,0 +1,214 @@
+.vehicle-config-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.vehicle-config-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vehicle-config-subtitle {
+  margin: 0;
+  color: #64748b;
+}
+
+.vehicle-config-tabs {
+  display: inline-flex;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  width: fit-content;
+}
+
+.vehicle-config-tab {
+  border: none;
+  background: transparent;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.vehicle-config-tab.active {
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.vehicle-config-error {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vehicle-config-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vehicle-config-card__head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.vehicle-config-card__head p {
+  margin: 6px 0 0;
+  color: #64748b;
+}
+
+.vehicle-config-toolbar {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.vehicle-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vehicle-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.vehicle-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vehicle-config-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.vehicle-config-field input,
+.vehicle-config-field select {
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.vehicle-config-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.vehicle-config-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.vehicle-config-actions button {
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  padding: 10px 16px;
+  background: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vehicle-config-actions button[type="submit"] {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.vehicle-config-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.vehicle-config-table th,
+.vehicle-config-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 14px;
+}
+
+.vehicle-config-table th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.vehicle-config-empty {
+  text-align: center;
+  color: #94a3b8;
+  padding: 18px 0;
+}
+
+.vehicle-config-status {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #e2e8f0;
+}
+
+.vehicle-config-status--inactive {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.vehicle-config-actions-cell button {
+  margin-right: 8px;
+  border-radius: 8px;
+  border: none;
+  background: #1e3a8a;
+  color: #ffffff;
+  padding: 6px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vehicle-config-danger {
+  border-color: transparent;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.vehicle-config-actions-cell .vehicle-config-danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+@media (max-width: 720px) {
+  .vehicle-config-tabs {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .vehicle-config-actions {
+    flex-direction: column;
+  }
+}

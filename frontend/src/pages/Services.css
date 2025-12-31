@@ -1,0 +1,254 @@
+.services-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.services-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.services-subtitle {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.services-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+.services-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.services-card__head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.services-card__head p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.services-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.services-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: end;
+}
+
+.services-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.services-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.services-field input {
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.services-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.services-tasks {
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  padding: 16px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.services-tasks__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.services-tasks__head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.services-tasks__head button {
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  padding: 8px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.services-task-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.services-remove {
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  padding: 8px 12px;
+  font-weight: 600;
+  color: #b91c1c;
+  cursor: pointer;
+}
+
+.services-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.services-actions button {
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  padding: 10px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ffffff;
+}
+
+.services-actions button[type="submit"] {
+  background: #1e3a8a;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.services-empty {
+  margin: 0;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.services-table {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.services-table table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+}
+
+.services-table th,
+.services-table td {
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 13px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.services-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+}
+
+.services-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(30, 58, 138, 0.12);
+  color: #1e3a8a;
+}
+
+.services-status--inactive {
+  background: rgba(148, 163, 184, 0.2);
+  color: #475569;
+}
+
+.services-actions-cell {
+  display: flex;
+  gap: 8px;
+}
+
+.services-actions-cell button {
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  padding: 6px 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.services-danger {
+  border-color: transparent;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+@media (max-width: 900px) {
+  .services-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .services-task-row {
+    grid-template-columns: 1fr;
+  }
+
+  .services-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
