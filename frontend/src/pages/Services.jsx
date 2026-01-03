@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
+import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import api from "../services/api.js";
 import "./Services.css";
 
 function Services() {
-  const [services, setServices] = useState([]);
+  const [services, setServices] = useLocalStorageState("ksc_services", []);
   const [name, setName] = useState("");
-  const [tasks, setTasks] = useState([{ title: "", isRequired: false }]);
+  const [tasks, setTasks] = useState([
+    { title: "", isRequired: false, standardLaborHours: "", laborHourRate: "" },
+  ]);
   const [active, setActive] = useState(true);
   const [editingId, setEditingId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -26,7 +29,6 @@ function Services() {
       setServices(Array.isArray(data) ? data : []);
     } catch (error) {
       if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
         return;
       }
       if (error.response?.status === 403) {
@@ -77,6 +79,8 @@ function Services() {
       tasks: tasks.map((task) => ({
         title: task.title.trim(),
         isRequired: Boolean(task.isRequired),
+        standardLaborHours: Number(task.standardLaborHours) || 0,
+        laborHourRate: Number(task.laborHourRate) || 0,
       })),
       active,
     };
@@ -90,7 +94,6 @@ function Services() {
       resetForm();
     } catch (error) {
       if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
         return;
       }
       if (error.response?.status === 403) {
@@ -114,8 +117,24 @@ function Services() {
         ? service.tasks.map((task) => ({
             title: task.title || "",
             isRequired: Boolean(task.isRequired),
+            standardLaborHours:
+              task.standardLaborHours !== undefined &&
+              task.standardLaborHours !== null
+                ? String(task.standardLaborHours)
+                : "",
+            laborHourRate:
+              task.laborHourRate !== undefined && task.laborHourRate !== null
+                ? String(task.laborHourRate)
+                : "",
           }))
-        : [{ title: "", isRequired: false }]
+        : [
+            {
+              title: "",
+              isRequired: false,
+              standardLaborHours: "",
+              laborHourRate: "",
+            },
+          ]
     );
     setActive(service.active !== undefined ? Boolean(service.active) : true);
   };
@@ -132,7 +151,6 @@ function Services() {
       }
     } catch (error) {
       if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
         return;
       }
       if (error.response?.status === 403) {
@@ -203,6 +221,36 @@ function Services() {
                       handleTaskChange(index, "title", event.target.value)
                     }
                     required
+                  />
+                </div>
+                <div className="services-field">
+                  <label htmlFor={`task-hours-${index}`}>Std. Hours</label>
+                  <input
+                    id={`task-hours-${index}`}
+                    type="number"
+                    min="0"
+                    step="0.25"
+                    value={task.standardLaborHours}
+                    onChange={(event) =>
+                      handleTaskChange(
+                        index,
+                        "standardLaborHours",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+                <div className="services-field">
+                  <label htmlFor={`task-rate-${index}`}>Labor Rate</label>
+                  <input
+                    id={`task-rate-${index}`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={task.laborHourRate}
+                    onChange={(event) =>
+                      handleTaskChange(index, "laborHourRate", event.target.value)
+                    }
                   />
                 </div>
                 <label className="services-toggle">

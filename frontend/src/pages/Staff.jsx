@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
 import api from "../services/api.js";
+import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import "./Workers.css";
 
 const ROLE_TYPES = [
@@ -17,20 +18,20 @@ const ROLE_NAMES = {
 const SALARY_TYPES = [
   { value: "FIXED", label: "Fixed" },
   { value: "PER_DAY", label: "Per Day" },
-  { value: "COMMISSION", label: "Commission" },
-  { value: "HYBRID", label: "Hybrid (Basic + Commission)" },
 ];
 
 function Staff() {
-  const [staff, setStaff] = useState([]);
+  const [staff, setStaff] = useLocalStorageState("ksc_staff", []);
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [roleType, setRoleType] = useState("TECHNICAL");
   const [roleName, setRoleName] = useState("Technician");
   const [salaryType, setSalaryType] = useState("FIXED");
   const [basicSalary, setBasicSalary] = useState("");
-  const [commissionPercentage, setCommissionPercentage] = useState("");
   const [perDayRate, setPerDayRate] = useState("");
+  const [incentiveEligible, setIncentiveEligible] = useState(false);
+  const [incentivePercentage, setIncentivePercentage] = useState("");
+  const [allowancesTotal, setAllowancesTotal] = useState("");
   const [active, setActive] = useState(true);
   const [notes, setNotes] = useState("");
   const [idNumber, setIdNumber] = useState("");
@@ -57,7 +58,6 @@ function Staff() {
       setStaff(Array.isArray(data) ? data : []);
     } catch (error) {
       if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
         return;
       }
       if (error.response?.status === 403) {
@@ -82,8 +82,10 @@ function Staff() {
     setRoleName("Technician");
     setSalaryType("FIXED");
     setBasicSalary("");
-    setCommissionPercentage("");
     setPerDayRate("");
+    setIncentiveEligible(false);
+    setIncentivePercentage("");
+    setAllowancesTotal("");
     setActive(true);
     setNotes("");
     setIdNumber("");
@@ -108,9 +110,11 @@ function Staff() {
       roleType,
       roleName,
       salaryType,
-      basicSalary: parseNumber(basicSalary),
-      commissionPercentage: parseNumber(commissionPercentage),
+      baseSalary: parseNumber(basicSalary),
       perDayRate: parseNumber(perDayRate),
+      incentiveEligible,
+      incentivePercentage: parseNumber(incentivePercentage),
+      allowances: parseNumber(allowancesTotal),
       active,
       idNumber: idNumber.trim() || undefined,
       notes: notes.trim() || undefined,
@@ -127,7 +131,6 @@ function Staff() {
       resetForm();
     } catch (error) {
       if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
         return;
       }
       if (error.response?.status === 403) {
@@ -158,17 +161,25 @@ function Staff() {
         ? String(member.basicSalary)
         : ""
     );
-    setCommissionPercentage(
-      member.commissionPercentage !== undefined &&
-        member.commissionPercentage !== null
-        ? String(member.commissionPercentage)
-        : ""
-    );
     setPerDayRate(
       member.perDayRate !== undefined && member.perDayRate !== null
         ? String(member.perDayRate)
         : ""
     );
+    setIncentiveEligible(Boolean(member.incentiveEligible));
+    setIncentivePercentage(
+      member.incentivePercentage !== undefined &&
+        member.incentivePercentage !== null
+        ? String(member.incentivePercentage)
+        : ""
+    );
+    const totalAllowances = Array.isArray(member.allowances)
+      ? member.allowances.reduce(
+          (sum, entry) => sum + (Number(entry?.amount) || 0),
+          0
+        )
+      : Number(member.allowancesTotal) || 0;
+    setAllowancesTotal(totalAllowances ? String(totalAllowances) : "");
     setActive(member.active !== undefined ? Boolean(member.active) : true);
     setNotes(member.notes || "");
     setIdNumber(member.idNumber || "");
@@ -186,7 +197,6 @@ function Staff() {
       }
     } catch (error) {
       if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
         return;
       }
       if (error.response?.status === 403) {
@@ -210,9 +220,24 @@ function Staff() {
         ?.label || member.salaryType;
     const parts = [typeLabel || "Fixed"];
     if (member.basicSalary) parts.push(`Base: ${member.basicSalary}`);
-    if (member.commissionPercentage)
-      parts.push(`Comm: ${member.commissionPercentage}%`);
     if (member.perDayRate) parts.push(`Per day: ${member.perDayRate}`);
+    const allowanceTotal = Array.isArray(member.allowances)
+      ? member.allowances.reduce(
+          (sum, entry) => sum + (Number(entry?.amount) || 0),
+          0
+        )
+      : 0;
+    if (allowanceTotal) parts.push(`Allow: ${allowanceTotal}`);
+    if (member.incentiveEligible) {
+      parts.push(
+        `Incentive: ${
+          member.incentivePercentage !== null &&
+          member.incentivePercentage !== undefined
+            ? `${member.incentivePercentage}%`
+            : "Default"
+        }`
+      );
+    }
     return parts.join(" | ");
   };
 
@@ -304,7 +329,7 @@ function Staff() {
                 ))}
               </select>
             </div>
-            {["FIXED", "HYBRID"].includes(salaryType) ? (
+            {salaryType === "FIXED" ? (
               <div className="workers-field">
                 <label htmlFor="staff-basic-salary">Base Salary</label>
                 <input
@@ -316,17 +341,41 @@ function Staff() {
                 />
               </div>
             ) : null}
-            {["COMMISSION", "HYBRID"].includes(salaryType) ? (
+            {salaryType === "FIXED" ? (
               <div className="workers-field">
-                <label htmlFor="staff-commission">Commission %</label>
+                <label htmlFor="staff-allowances">Monthly Allowances</label>
                 <input
-                  id="staff-commission"
+                  id="staff-allowances"
+                  type="number"
+                  min="0"
+                  value={allowancesTotal}
+                  onChange={(event) => setAllowancesTotal(event.target.value)}
+                />
+              </div>
+            ) : null}
+            {salaryType === "FIXED" ? (
+              <label className="workers-toggle">
+                <input
+                  type="checkbox"
+                  checked={incentiveEligible}
+                  onChange={(event) =>
+                    setIncentiveEligible(event.target.checked)
+                  }
+                />
+                Incentive Eligible
+              </label>
+            ) : null}
+            {salaryType === "FIXED" && incentiveEligible ? (
+              <div className="workers-field">
+                <label htmlFor="staff-incentive">Incentive % (override)</label>
+                <input
+                  id="staff-incentive"
                   type="number"
                   min="0"
                   max="100"
-                  value={commissionPercentage}
+                  value={incentivePercentage}
                   onChange={(event) =>
-                    setCommissionPercentage(event.target.value)
+                    setIncentivePercentage(event.target.value)
                   }
                 />
               </div>

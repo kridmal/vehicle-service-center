@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
 import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import { createId } from "../utils/id.js";
@@ -23,7 +23,6 @@ function Vehicles() {
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const navigate = useNavigate();
   const { user } = useAuth();
   const isOwner = user?.role === "OWNER";
 
@@ -46,7 +45,6 @@ function Vehicles() {
         setBrands(Array.isArray(data) ? data : []);
       } catch (error) {
         if (error.response?.status === 401) {
-          navigate("/login", { replace: true });
           return;
         }
         setError(
@@ -56,7 +54,7 @@ function Vehicles() {
       }
     };
     loadBrands();
-  }, [navigate]);
+  }, []);
 
   useEffect(() => {
     const loadModels = async () => {

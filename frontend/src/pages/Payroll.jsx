@@ -1,10 +1,8 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
 import api from "../services/api.js";
 import "./Payroll.css";
-
-const COMPLETED_STATUSES = new Set(["COMPLETED", "CLOSED"]);
 
 const toMonthValue = (date) => {
   const year = date.getFullYear();
@@ -21,11 +19,12 @@ const parseMonthValue = (value) => {
 
 function Payroll() {
   const [staff, setStaff] = useState([]);
-  const [jobCards, setJobCards] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(() =>
     toMonthValue(new Date())
   );
   const [selectedStaffId, setSelectedStaffId] = useState("");
+  const [oneOffAllowances, setOneOffAllowances] = useState("");
+  const [otRate, setOtRate] = useState("");
   const [bonus, setBonus] = useState("");
   const [advance, setAdvance] = useState("");
   const [penalties, setPenalties] = useState("");
@@ -35,7 +34,9 @@ function Payroll() {
   const [payslip, setPayslip] = useState(null);
   const [payslipStatus, setPayslipStatus] = useState("");
   const [payslipMessage, setPayslipMessage] = useState("");
-  const [attendanceRecord, setAttendanceRecord] = useState(null);
+  const [payrollRun, setPayrollRun] = useState(null);
+  const [payrollMessage, setPayrollMessage] = useState("");
+  const [payrollError, setPayrollError] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -43,15 +44,10 @@ function Payroll() {
       setLoading(true);
       setError("");
       try {
-        const [staffResponse, jobsResponse] = await Promise.all([
-          api.get("/staff"),
-          api.get("/job-cards"),
-        ]);
+        const [staffResponse] = await Promise.all([api.get("/staff")]);
         setStaff(Array.isArray(staffResponse.data) ? staffResponse.data : []);
-        setJobCards(Array.isArray(jobsResponse.data) ? jobsResponse.data : []);
       } catch (error) {
         if (error.response?.status === 401) {
-          navigate("/login", { replace: true });
           return;
         }
         if (error.response?.status === 403) {
@@ -67,7 +63,7 @@ function Payroll() {
       }
     };
     loadData();
-  }, [navigate]);
+  }, []);
 
   useEffect(() => {
     const loadPayslip = async () => {
@@ -105,28 +101,35 @@ function Payroll() {
   }, [selectedStaffId, selectedMonth]);
 
   useEffect(() => {
-    const loadAttendance = async () => {
+    const loadPayrollRun = async () => {
       if (!selectedStaffId || !selectedMonth) {
-        setAttendanceRecord(null);
+        setPayrollRun(null);
+        setPayrollError("");
+        setPayrollMessage("");
         return;
       }
       const monthInfo = parseMonthValue(selectedMonth);
       if (!monthInfo) return;
       try {
-        const { data } = await api.get("/attendance", {
+        const { data } = await api.get("/payroll-runs", {
           params: {
             staffId: selectedStaffId,
             month: monthInfo.month + 1,
             year: monthInfo.year,
           },
         });
-        const records = Array.isArray(data?.records) ? data.records : [];
-        setAttendanceRecord(records[0] || null);
-      } catch (error) {
-        setAttendanceRecord(null);
+        const existing = Array.isArray(data) ? data[0] : null;
+        setPayrollRun(existing || null);
+        setPayrollError("");
+      } catch (loadError) {
+        setPayrollRun(null);
+        setPayrollError(
+          loadError.response?.data?.message ||
+            "Unable to load payroll run."
+        );
       }
     };
-    loadAttendance();
+    loadPayrollRun();
   }, [selectedStaffId, selectedMonth]);
 
   const selectedStaff = useMemo(
@@ -135,112 +138,114 @@ function Payroll() {
     [staff, selectedStaffId]
   );
 
-  const payrollSnapshot = useMemo(() => {
-    if (!selectedStaff) {
-      return {
-        jobCount: 0,
-        laborTotal: 0,
-        baseSalary: 0,
-      };
-    }
-
-    const monthInfo = parseMonthValue(selectedMonth);
-    const staffId = String(selectedStaff._id || selectedStaff.id || "");
-    const staffName = String(selectedStaff.fullName || "").toLowerCase();
-
-    let jobCount = 0;
-    let laborTotal = 0;
-    jobCards.forEach((job) => {
-      if (!COMPLETED_STATUSES.has(job.status)) return;
-      const createdAt = job.createdAt ? new Date(job.createdAt) : null;
-      if (!createdAt || !monthInfo) return;
-      if (
-        createdAt.getFullYear() !== monthInfo.year ||
-        createdAt.getMonth() !== monthInfo.month
-      ) {
-        return;
-      }
-
-      const assignments = Array.isArray(job.assignedWorkers)
-        ? job.assignedWorkers
-        : [];
-      if (assignments.length === 0) return;
-
-      const hasMatch = assignments.some((entry) => {
-        const entryId = String(entry?.staffId || entry?.workerId || "");
-        if (entryId && entryId === staffId) return true;
-        if (!entryId && entry?.name) {
-          return String(entry.name).toLowerCase() === staffName;
-        }
-        return false;
-      });
-
-      if (!hasMatch) return;
-
-      jobCount += 1;
-      const laborCharges = Number(job.laborCharges) || 0;
-      const split = laborCharges / assignments.length;
-      laborTotal += split;
-    });
-
-    const baseSalary = Number(selectedStaff.basicSalary) || 0;
-
-    return {
-      jobCount,
-      laborTotal,
-      baseSalary,
-    };
-  }, [jobCards, selectedMonth, selectedStaff]);
-
   const normalizedBonus = Number(bonus) || 0;
   const normalizedAdvance = Number(advance) || 0;
   const normalizedPenalties = Number(penalties) || 0;
   const normalizedOther = Number(otherDeductions) || 0;
   const totalDeductions = normalizedAdvance + normalizedPenalties + normalizedOther;
 
+  useEffect(() => {
+    const calculatePayroll = async () => {
+      if (!selectedStaffId || !selectedMonth) return;
+      const monthInfo = parseMonthValue(selectedMonth);
+      if (!monthInfo) return;
+      if (payrollRun?.status === "FINALIZED") return;
+      setPayrollError("");
+      try {
+        const { data } = await api.post("/payroll-runs", {
+          staffId: selectedStaffId,
+          month: monthInfo.month + 1,
+          year: monthInfo.year,
+          adjustments: { bonus: normalizedBonus },
+          deductions: {
+            advance: normalizedAdvance,
+            penalties: normalizedPenalties,
+            other: normalizedOther,
+          },
+          allowances: { oneOffTotal: Number(oneOffAllowances) || 0 },
+          otRate: Number(otRate) || 0,
+        });
+        setPayrollRun(data);
+      } catch (calcError) {
+        setPayrollRun(null);
+        setPayrollError(
+          calcError.response?.data?.message ||
+            "Unable to calculate payroll."
+        );
+      }
+    };
+    calculatePayroll();
+  }, [
+    selectedStaffId,
+    selectedMonth,
+    normalizedBonus,
+    normalizedAdvance,
+    normalizedPenalties,
+    normalizedOther,
+    oneOffAllowances,
+    otRate,
+    payrollRun?.status,
+  ]);
+
   const salaryType = String(selectedStaff?.salaryType || "FIXED").toUpperCase();
-  const attendanceRequired = ["FIXED", "PER_DAY", "HYBRID"].includes(salaryType);
-  const isPerDaySalary = salaryType === "PER_DAY";
-  const workingDays = attendanceRecord?.workingDays || 0;
-  const presentDays = attendanceRecord?.presentDays || 0;
-  const halfDays = attendanceRecord?.halfDays || 0;
-  const approvedLeaveDays = attendanceRecord?.approvedLeaveDays || 0;
-  const lopDays = isPerDaySalary ? 0 : attendanceRecord?.lopDays || 0;
-  const lopAmount = isPerDaySalary ? 0 : attendanceRecord?.lopAmount || 0;
+  const attendanceSummary = payrollRun?.attendanceSummary || {};
+  const laborSummary = payrollRun?.laborSummary || {};
+  const overtimeSummary = payrollRun?.overtimeSummary || {};
+  const workingDays = attendanceSummary.workingDays || 0;
+  const presentDays = attendanceSummary.presentDays || 0;
+  const halfDays = attendanceSummary.halfDays || 0;
+  const approvedLeaveDays = attendanceSummary.approvedLeaveDays || 0;
+  const lopDays = attendanceSummary.lopDays || 0;
+  const lopAmount = attendanceSummary.lopAmount || 0;
   const perDayRate = Number(selectedStaff?.perDayRate) || 0;
-  const commissionRate = Number(selectedStaff?.commissionPercentage) || 0;
-  const commissionAmount = (commissionRate / 100) * payrollSnapshot.laborTotal;
-  const perDayEarnings = presentDays * perDayRate + halfDays * perDayRate * 0.5;
-  const baseAfterLop = Math.max(0, payrollSnapshot.baseSalary - lopAmount);
-  const basePay =
-    salaryType === "PER_DAY"
-      ? perDayEarnings
-      : salaryType === "COMMISSION"
-      ? commissionAmount
-      : salaryType === "HYBRID"
-      ? baseAfterLop + commissionAmount
-      : baseAfterLop;
-  const grossSalary = basePay;
-  const netSalary = Math.max(0, grossSalary + normalizedBonus - totalDeductions);
+  const completedJobs = laborSummary.completedJobs || 0;
+  const totalLaborHours = laborSummary.totalLaborHours || 0;
+  const incentiveAmount = laborSummary.incentiveAmount || 0;
+  const otAmount = overtimeSummary.otAmount || 0;
+
+  const grossSalary = Number(payrollRun?.grossSalary) || 0;
+  const netSalary = Number(payrollRun?.netSalary) || 0;
 
   const totalAttendanceDays =
     presentDays + approvedLeaveDays + halfDays * 0.5;
-  const payrollBlockedReason = selectedStaff
-    ? attendanceRequired && !attendanceRecord
-      ? "Attendance not marked for this period"
-      : salaryType === "PER_DAY" && perDayRate <= 0
-      ? "Per day rate is required for PER_DAY"
-      : ""
-    : "";
+  const attendanceNotFinalized =
+    payrollError?.toLowerCase().includes("attendance not approved") ?? false;
+  const payrollBlockedReason = selectedStaff ? payrollError || "" : "";
   const payrollWarning =
-    attendanceRecord && totalAttendanceDays > workingDays
+    payrollRun && totalAttendanceDays > workingDays
       ? "Attendance days exceed working days."
       : "";
-  const showPayrollValues = Boolean(selectedStaff) && !payrollBlockedReason;
+  const showPayrollValues =
+    Boolean(selectedStaff) && !payrollBlockedReason && Boolean(payrollRun);
 
   const isPayslipLocked = Boolean(payslip);
+  const isPayrollFinalized = payrollRun?.status === "FINALIZED";
   const canGeneratePayslip =
-    Boolean(selectedStaff) && !isPayslipLocked && !payrollBlockedReason;
+    Boolean(selectedStaff) &&
+    !isPayslipLocked &&
+    !payrollBlockedReason &&
+    isPayrollFinalized;
+
+  const handleFinalizePayroll = async () => {
+    if (!payrollRun?._id) return;
+    setLoading(true);
+    setPayrollMessage("");
+    setPayrollError("");
+    try {
+      const { data } = await api.put(
+        `/payroll-runs/${payrollRun._id}/finalize`
+      );
+      setPayrollRun(data);
+      setPayrollMessage("Payroll finalized and locked.");
+    } catch (finalizeError) {
+      setPayrollError(
+        finalizeError.response?.data?.message ||
+          "Unable to finalize payroll."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGeneratePayslip = async () => {
     if (!selectedStaff) return;
@@ -250,36 +255,10 @@ function Payroll() {
     setPayslipMessage("");
     try {
       const payload = {
+        payrollRunId: payrollRun?._id,
         staffId: selectedStaff._id || selectedStaff.id,
         month: monthInfo.month + 1,
         year: monthInfo.year,
-        workingDays,
-        perDayRate,
-        presentDays,
-        halfDays,
-        approvedLeaveDays,
-        lopDays,
-        lopAmount,
-        completedJobs: payrollSnapshot.jobCount,
-        grossSalary,
-        netSalary,
-        adjustments: {
-          bonus: normalizedBonus,
-          advance: normalizedAdvance,
-          penalties: normalizedPenalties,
-          other: normalizedOther,
-        },
-        earnings: {
-          baseSalary: grossSalary,
-          laborShare: 0,
-          commission: commissionAmount,
-          bonus: normalizedBonus,
-        },
-        deductions: {
-          advance: normalizedAdvance,
-          penalties: normalizedPenalties,
-          other: normalizedOther,
-        },
       };
       const { data } = await api.post("/payslips", payload);
       setPayslip(data);
@@ -346,46 +325,66 @@ function Payroll() {
           <div className="payroll-summary">
             <div className="payroll-summary__card">
               <span>Completed Jobs</span>
-              <strong>{payrollSnapshot.jobCount}</strong>
+              <strong>{showPayrollValues ? completedJobs : "-"}</strong>
             </div>
             <div className="payroll-summary__card">
               <span>Working Days</span>
-              <strong>{attendanceRecord ? workingDays : "-"}</strong>
+              <strong>{showPayrollValues ? workingDays : "-"}</strong>
             </div>
             <div className="payroll-summary__card">
               <span>Present Days</span>
-              <strong>{attendanceRecord ? presentDays : "-"}</strong>
+              <strong>{showPayrollValues ? presentDays : "-"}</strong>
             </div>
             <div className="payroll-summary__card">
               <span>Half Days</span>
               <strong>
-                {attendanceRecord ? halfDays : "-"}
+                {showPayrollValues ? halfDays : "-"}
               </strong>
             </div>
             <div className="payroll-summary__card">
               <span>Leave Days</span>
-              <strong>{attendanceRecord ? approvedLeaveDays : "-"}</strong>
+              <strong>{showPayrollValues ? approvedLeaveDays : "-"}</strong>
             </div>
             <div className="payroll-summary__card">
-                  <span>LOP Days</span>
-                  <strong>
-                    {salaryType === "PER_DAY"
-                      ? "N/A"
-                      : attendanceRecord
-                      ? lopDays
-                      : "-"}
-                  </strong>
-                </div>
-                <div className="payroll-summary__card">
-                  <span>LOP Amount</span>
-                  <strong>
-                    {salaryType === "PER_DAY"
-                      ? "N/A"
-                      : attendanceRecord
-                      ? lopAmount.toFixed(2)
-                      : "-"}
-                  </strong>
-                </div>
+              <span>LOP Days</span>
+              <strong>
+                {salaryType === "PER_DAY"
+                  ? "N/A"
+                  : showPayrollValues
+                  ? lopDays
+                  : "-"}
+              </strong>
+            </div>
+            <div className="payroll-summary__card">
+              <span>LOP Amount</span>
+              <strong>
+                {salaryType === "PER_DAY"
+                  ? "N/A"
+                  : showPayrollValues
+                  ? lopAmount.toFixed(2)
+                  : "-"}
+              </strong>
+            </div>
+            <div className="payroll-summary__card">
+              <span>Total Labor Hours</span>
+              <strong>
+                {salaryType === "FIXED" && showPayrollValues
+                  ? totalLaborHours.toFixed(2)
+                  : "-"}
+              </strong>
+            </div>
+            <div className="payroll-summary__card">
+              <span>Incentive Amount</span>
+              <strong>
+                {salaryType === "FIXED" && showPayrollValues
+                  ? incentiveAmount.toFixed(2)
+                  : "-"}
+              </strong>
+            </div>
+            <div className="payroll-summary__card">
+              <span>OT Amount</span>
+              <strong>{showPayrollValues ? otAmount.toFixed(2) : "-"}</strong>
+            </div>
             <div className="payroll-summary__card">
               <span>Per Day Rate</span>
               <strong>
@@ -403,7 +402,9 @@ function Payroll() {
           <p className="payroll-muted">Select a staff member to view payroll.</p>
         )}
         {payrollBlockedReason ? (
-          <p className="payroll-error">{payrollBlockedReason}</p>
+          <p className={attendanceNotFinalized ? "payroll-warning" : "payroll-error"}>
+            {payrollBlockedReason}
+          </p>
         ) : null}
         {payrollWarning ? (
           <p className="payroll-warning">{payrollWarning}</p>
@@ -417,6 +418,28 @@ function Payroll() {
         </div>
         <div className="payroll-adjustments">
           <div className="payroll-field">
+            <label htmlFor="payroll-ot-rate">OT Rate</label>
+            <input
+              id="payroll-ot-rate"
+              type="number"
+              min="0"
+              value={otRate}
+              onChange={(event) => setOtRate(event.target.value)}
+              disabled={!selectedStaff || isPayrollFinalized}
+            />
+          </div>
+          <div className="payroll-field">
+            <label htmlFor="payroll-allowances">One-Off Allowance</label>
+            <input
+              id="payroll-allowances"
+              type="number"
+              min="0"
+              value={oneOffAllowances}
+              onChange={(event) => setOneOffAllowances(event.target.value)}
+              disabled={!selectedStaff || isPayrollFinalized}
+            />
+          </div>
+          <div className="payroll-field">
             <label htmlFor="payroll-bonus">Bonus</label>
             <input
               id="payroll-bonus"
@@ -424,7 +447,7 @@ function Payroll() {
               min="0"
               value={bonus}
               onChange={(event) => setBonus(event.target.value)}
-              disabled={!selectedStaff || isPayslipLocked}
+              disabled={!selectedStaff || isPayrollFinalized}
             />
           </div>
           <div className="payroll-field">
@@ -435,7 +458,7 @@ function Payroll() {
               min="0"
               value={advance}
               onChange={(event) => setAdvance(event.target.value)}
-              disabled={!selectedStaff || isPayslipLocked}
+              disabled={!selectedStaff || isPayrollFinalized}
             />
           </div>
           <div className="payroll-field">
@@ -446,7 +469,7 @@ function Payroll() {
               min="0"
               value={penalties}
               onChange={(event) => setPenalties(event.target.value)}
-              disabled={!selectedStaff || isPayslipLocked}
+              disabled={!selectedStaff || isPayrollFinalized}
             />
           </div>
           <div className="payroll-field">
@@ -457,7 +480,7 @@ function Payroll() {
               min="0"
               value={otherDeductions}
               onChange={(event) => setOtherDeductions(event.target.value)}
-              disabled={!selectedStaff || isPayslipLocked}
+              disabled={!selectedStaff || isPayrollFinalized}
             />
           </div>
           <div className="payroll-field payroll-field--net">
@@ -467,6 +490,13 @@ function Payroll() {
         </div>
         <div className="payroll-actions">
           <div className="payroll-actions__buttons">
+            <button
+              type="button"
+              onClick={handleFinalizePayroll}
+              disabled={!payrollRun || isPayrollFinalized || loading}
+            >
+              Finalize Payroll
+            </button>
             <button
               type="button"
               onClick={handleGeneratePayslip}
@@ -482,12 +512,29 @@ function Payroll() {
               View Payslips
             </button>
           </div>
+          {payrollRun ? (
+            <span className="payroll-lock">
+              Payroll {payrollRun.status?.toLowerCase() || "draft"} for this
+              period.
+            </span>
+          ) : null}
           {payslip ? (
             <span className="payroll-lock">
               Payslip {payslipStatus.toLowerCase()} for this period.
             </span>
           ) : null}
         </div>
+        {payrollMessage ? (
+          <p
+            className={
+              payrollMessage.includes("finalized")
+                ? "payroll-success"
+                : "payroll-error"
+            }
+          >
+            {payrollMessage}
+          </p>
+        ) : null}
         {payslipMessage ? (
           <p
             className={

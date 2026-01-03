@@ -14,6 +14,9 @@ const jobTaskSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     isRequired: { type: Boolean, default: false },
     completed: { type: Boolean, default: false },
+    standardLaborHours: { type: Number, min: 0, default: 0 },
+    laborHourRate: { type: Number, min: 0, default: 0 },
+    assignedStaffId: { type: mongoose.Schema.Types.ObjectId, ref: "Worker" },
   },
   { _id: false }
 );
@@ -44,6 +47,11 @@ const jobCardSchema = new mongoose.Schema(
     customerId: { type: String, required: true, trim: true },
     vehicleId: { type: String, required: true, trim: true },
     services: { type: [jobServiceSchema], default: [] },
+    billingType: {
+      type: String,
+      enum: ["BILLABLE", "WARRANTY", "REWORK", "FREE"],
+      default: "BILLABLE",
+    },
     status: {
       type: String,
       enum: ["OPEN", "IN_PROGRESS", "PENDING", "COMPLETED", "CLOSED"],

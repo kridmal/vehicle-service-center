@@ -10,7 +10,7 @@ import "./JobCardNew.css";
 function JobCardNew() {
   const [customers, setCustomers] = useLocalStorageState("ksc_customers", []);
   const [vehicles, setVehicles] = useLocalStorageState("ksc_vehicles", []);
-  const [services, setServices] = useState([]);
+  const [services, setServices] = useLocalStorageState("ksc_services", []);
   const [servicesError, setServicesError] = useState("");
   const [vehicleId, setVehicleId] = useState("");
   const [ownerId, setOwnerId] = useState("");
@@ -69,10 +69,18 @@ function JobCardNew() {
 
   const filteredVehicles = useMemo(() => {
     const query = vehicleSearch.trim().toLowerCase();
-    if (!query) return vehicles;
-    return vehicles.filter((vehicle) =>
-      vehicle.vehicleNumber?.toLowerCase().includes(query)
-    );
+    const seen = new Set();
+    const filtered = [];
+    vehicles.forEach((vehicle) => {
+      const number = String(vehicle.vehicleNumber || "").trim();
+      if (!number) return;
+      if (query && !number.toLowerCase().includes(query)) return;
+      const key = number.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      filtered.push(vehicle);
+    });
+    return filtered;
   }, [vehicles, vehicleSearch]);
 
   const vehicleMatch = useMemo(() => {
@@ -258,6 +266,8 @@ function JobCardNew() {
             title: task.title,
             isRequired: Boolean(task.isRequired),
             completed: false,
+            standardLaborHours: Number(task.standardLaborHours) || 0,
+            laborHourRate: Number(task.laborHourRate) || 0,
           }))
           .filter((task) => task.title)
       : [];
@@ -287,6 +297,8 @@ function JobCardNew() {
         title: task.title,
         isRequired: Boolean(task.isRequired),
         completed: Boolean(task.completed),
+        standardLaborHours: Number(task.standardLaborHours) || 0,
+        laborHourRate: Number(task.laborHourRate) || 0,
       }))
       .filter((task) => task.title);
     setSelectedServices((prev) => [
@@ -340,7 +352,6 @@ function JobCardNew() {
 
   const handleAuthRedirect = (status) => {
     if (status === 401 || status === 403) {
-      navigate("/login", { replace: true });
     }
   };
 
@@ -629,10 +640,6 @@ function JobCardNew() {
     if (!trimmedNumber || !trimmedBrand || !trimmedModel || !trimmedYear) {
       return;
     }
-    if (!brand || !model) {
-      setSyncError("Select a valid brand and model from the master list.");
-      return;
-    }
     const resolvedOwnerId = ownerId || currentOwnerId;
     const existingVehicle = vehicles.find(
       (vehicle) =>
@@ -650,12 +657,28 @@ function JobCardNew() {
       customerId: resolvedOwnerId,
       currentOwnerId: resolvedOwnerId,
       vehicleNumber: trimmedNumber,
-      brandId: brand._id || brand.id,
-      brandName: brand.name,
-      modelId: model._id || model.id,
-      modelName: model.name,
+      brandId: brand?._id || brand?.id || "",
+      brandName: brand?.name || trimmedBrand,
+      modelId: model?._id || model?.id || "",
+      modelName: model?.name || trimmedModel,
       year: trimmedYear,
     };
+    if (!brand || !model) {
+      setVehicles((prev) => [newVehicle, ...prev]);
+      setVehicleId(newVehicle.id);
+      setVehicleSearch(trimmedNumber);
+      setShowVehicleForm(false);
+      setNewVehicleNumber("");
+      setNewVehicleBrand("");
+      setNewVehicleModel("");
+      setNewVehicleYear("");
+      setSelectedBrandId("");
+      setSelectedModelId("");
+      setSyncError(
+        "Vehicle saved locally. Select a master brand/model to sync."
+      );
+      return;
+    }
     if (!resolvedOwnerId) {
       setVehicles((prev) => [newVehicle, ...prev]);
       setVehicleId(newVehicle.id);
@@ -1076,15 +1099,13 @@ function JobCardNew() {
                     type="button"
                     className="job-card-button job-card-button--primary"
                     onClick={handleVehicleSave}
-                    disabled={
-                      !newVehicleNumber.trim() ||
-                      !newVehicleBrand.trim() ||
-                      !newVehicleModel.trim() ||
-                      !newVehicleYear.trim() ||
-                      !selectedBrandId ||
-                      !selectedModelId ||
-                      isSyncing
-                    }
+                      disabled={
+                        !newVehicleNumber.trim() ||
+                        !newVehicleBrand.trim() ||
+                        !newVehicleModel.trim() ||
+                        !newVehicleYear.trim() ||
+                        isSyncing
+                      }
                   >
                     Save Vehicle
                   </button>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import PageHeader from "../../components/PageHeader.jsx";
 import api from "../../services/api.js";
 import "./InvoiceList.css";
@@ -10,7 +10,6 @@ function InvoiceList() {
   const [isLoading, setIsLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
-  const navigate = useNavigate();
 
   useEffect(() => {
     const loadInvoices = async () => {
@@ -21,7 +20,6 @@ function InvoiceList() {
         setInvoices(Array.isArray(data) ? data : []);
       } catch (error) {
         if (error.response?.status === 401 || error.response?.status === 403) {
-          navigate("/login", { replace: true });
         }
         setError(
           error.response?.data?.message ||
@@ -32,7 +30,7 @@ function InvoiceList() {
       }
     };
     loadInvoices();
-  }, [navigate]);
+  }, []);
 
   const normalizedInvoices = useMemo(
     () =>

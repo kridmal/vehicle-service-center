@@ -8,11 +8,21 @@ const staffSchema = new mongoose.Schema(
     roleName: { type: String, trim: true },
     salaryType: {
       type: String,
-      enum: ["FIXED", "PER_DAY", "COMMISSION", "HYBRID"],
+      enum: ["FIXED", "PER_DAY"],
     },
     basicSalary: { type: Number, min: 0, default: 0 },
-    commissionPercentage: { type: Number, min: 0, default: 0 },
     perDayRate: { type: Number, min: 0, default: 0 },
+    incentiveEligible: { type: Boolean, default: false },
+    incentivePercentage: { type: Number, min: 0, max: 100, default: null },
+    allowances: {
+      type: [
+        {
+          label: { type: String, trim: true },
+          amount: { type: Number, min: 0, default: 0 },
+        },
+      ],
+      default: [],
+    },
     active: { type: Boolean, default: true },
     notes: { type: String, trim: true },
     idNumber: { type: String, trim: true },

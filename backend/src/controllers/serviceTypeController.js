@@ -9,6 +9,8 @@ const normalizeTasks = (tasks = []) =>
     .map((task) => ({
       title: task.title?.trim(),
       isRequired: Boolean(task.isRequired),
+      standardLaborHours: Number(task.standardLaborHours) || 0,
+      laborHourRate: Number(task.laborHourRate) || 0,
     }))
     .filter((task) => task.title);
 

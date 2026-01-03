@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import PageHeader from "../../components/PageHeader.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { useLocalStorageState } from "../../hooks/useLocalStorageState.js";
 import api from "../../services/api.js";
 import "./InventoryPage.css";
 
 function InventoryPage() {
-  const [items, setItems] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [items, setItems] = useLocalStorageState("ksc_inventory", []);
+  const [categories, setCategories] = useLocalStorageState(
+    "ksc_inventory_categories",
+    []
+  );
   const [itemName, setItemName] = useState("");
   const [category, setCategory] = useState("");
   const [brand, setBrand] = useState("");
@@ -46,7 +49,6 @@ function InventoryPage() {
     sku: "",
   });
   const unitOptions = ["Bottle", "Liter", "Piece"];
-  const navigate = useNavigate();
   const { user } = useAuth();
   const isFormValid =
     itemName.trim() &&
@@ -140,28 +142,18 @@ function InventoryPage() {
     setSku(generated);
   }, [brand, category, itemName, skuEdited, variant]);
 
-  const handleAuthRedirect = useCallback(
-    (status) => {
-      if (status === 401 || status === 403) {
-        navigate("/login", { replace: true });
-      }
-    },
-    [navigate]
-  );
-
   const fetchCategories = useCallback(async () => {
     setCategoryError("");
     try {
       const { data } = await api.get("/inventory-categories");
       setCategories(Array.isArray(data) ? data : []);
     } catch (error) {
-      handleAuthRedirect(error.response?.status);
       setCategoryError(
         error.response?.data?.message ||
           "Unable to load categories right now. Please try again."
       );
     }
-  }, [handleAuthRedirect]);
+  }, [setCategories]);
 
   const fetchInventory = useCallback(async () => {
     setIsLoading(true);
@@ -170,7 +162,6 @@ function InventoryPage() {
       const { data } = await api.get("/inventory");
       setItems(Array.isArray(data) ? data : []);
     } catch (error) {
-      handleAuthRedirect(error.response?.status);
       setError(
         error.response?.data?.message ||
           "Unable to load inventory right now. Please try again."
@@ -178,7 +169,7 @@ function InventoryPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [handleAuthRedirect]);
+  }, [setItems]);
 
   useEffect(() => {
     fetchInventory();
@@ -221,7 +212,6 @@ function InventoryPage() {
       setNotes("");
       await fetchInventory();
     } catch (error) {
-      handleAuthRedirect(error.response?.status);
       setError(
         error.response?.data?.message ||
           "Unable to save inventory item. Please try again."
@@ -241,7 +231,6 @@ function InventoryPage() {
       setNewCategoryName("");
       await fetchCategories();
     } catch (error) {
-      handleAuthRedirect(error.response?.status);
       setCategoryError(
         error.response?.data?.message ||
           "Unable to save category. Please try again."
@@ -271,7 +260,6 @@ function InventoryPage() {
       await fetchCategories();
       cancelCategoryEdit();
     } catch (error) {
-      handleAuthRedirect(error.response?.status);
       setCategoryError(
         error.response?.data?.message ||
           "Unable to update category. Please try again."
@@ -289,7 +277,6 @@ function InventoryPage() {
       await api.delete(`/inventory-categories/${id}`);
       await fetchCategories();
     } catch (error) {
-      handleAuthRedirect(error.response?.status);
       setCategoryError(
         error.response?.data?.message ||
           "Unable to delete category. Please try again."
@@ -355,7 +342,6 @@ function InventoryPage() {
       await fetchInventory();
       cancelEdit();
     } catch (error) {
-      handleAuthRedirect(error.response?.status);
       setError(
         error.response?.data?.message ||
           "Unable to update inventory item. Please try again."
@@ -374,7 +360,6 @@ function InventoryPage() {
       await api.delete(`/inventory/${id}`);
       await fetchInventory();
     } catch (error) {
-      handleAuthRedirect(error.response?.status);
       setError(
         error.response?.data?.message ||
           "Unable to delete inventory item. Please try again."
@@ -594,7 +579,7 @@ function InventoryPage() {
             <p>Monitor stock levels and update quantities instantly.</p>
           </div>
         </div>
-        {isLoading ? (
+        {isLoading && items.length === 0 ? (
           <div className="inventory-empty">Loading inventory items...</div>
         ) : items.length === 0 ? (
           <div className="inventory-empty">

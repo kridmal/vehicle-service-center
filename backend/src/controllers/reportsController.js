@@ -306,18 +306,11 @@ export const getReportsSummary = async (req, res, next) => {
 
     const technicianMetrics = Array.from(technicianMap.values()).map(
       (entry) => {
-        const commissionAmount =
-          (entry.commissionPercentage / 100) * entry.laborShare;
+        const commissionAmount = 0;
         let basePay = 0;
         switch (entry.salaryType) {
           case "PER_DAY":
             basePay = entry.perDayRate;
-            break;
-          case "COMMISSION":
-            basePay = commissionAmount;
-            break;
-          case "HYBRID":
-            basePay = entry.basicSalary + commissionAmount;
             break;
           default:
             basePay = entry.basicSalary;

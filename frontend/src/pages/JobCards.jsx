@@ -1,29 +1,35 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
-import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import api from "../services/api.js";
-import { getJobCards, saveJobCards } from "../utils/storage.js";
+import { readJson } from "../utils/cache.js";
+import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import "./JobCards.css";
 
 function JobCards() {
-  const [allJobs, setAllJobs] = useState([]);
+  const [allJobs, setAllJobs] = useLocalStorageState("ksc_job_cards", []);
   const [filteredJobs, setFilteredJobs] = useState([]);
   const [customers] = useLocalStorageState("ksc_customers", []);
   const [vehicles] = useLocalStorageState("ksc_vehicles", []);
-  const [services, setServices] = useState([]);
+  const [services, setServices] = useLocalStorageState("ksc_services", []);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeStatus, setActiveStatus] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeJobCard, setActiveJobCard] = useState(null);
-  const [workers, setWorkers] = useState([]);
+  const [workers, setWorkers] = useState(() => {
+    const cached = readJson("ksc_staff", []);
+    if (!Array.isArray(cached)) return [];
+    return cached.filter(
+      (member) => member?.active !== false && member?.roleType === "TECHNICAL"
+    );
+  });
   const [workerSearch, setWorkerSearch] = useState("");
   const [selectedWorkers, setSelectedWorkers] = useState([]);
   const [assignedWorkerText, setAssignedWorkerText] = useState("");
   const [workerLoadError, setWorkerLoadError] = useState("");
   const [jobStatus, setJobStatus] = useState("OPEN");
-  const [laborCharges, setLaborCharges] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("UNPAID");
+  const [billingType, setBillingType] = useState("BILLABLE");
   const [workNotes, setWorkNotes] = useState("");
   const [partsUsed, setPartsUsed] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
@@ -39,22 +45,17 @@ function JobCards() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    setAllJobs(getJobCards());
-  }, []);
-
-  useEffect(() => {
     const loadServices = async () => {
       try {
         const { data } = await api.get("/services");
         setServices(Array.isArray(data) ? data : []);
       } catch (error) {
         if (error.response?.status === 401) {
-          navigate("/login", { replace: true });
         }
       }
     };
     loadServices();
-  }, [navigate]);
+  }, []);
 
   useEffect(() => {
     const loadWorkers = async () => {
@@ -66,7 +67,6 @@ function JobCards() {
         setWorkers(Array.isArray(data) ? data : []);
       } catch (error) {
         if (error.response?.status === 401) {
-          navigate("/login", { replace: true });
           return;
         }
         setWorkers([]);
@@ -77,11 +77,21 @@ function JobCards() {
       }
     };
     loadWorkers();
-  }, [navigate]);
+  }, []);
 
   const lookup = useMemo(() => {
-    const customerMap = new Map(customers.map((c) => [c.id, c]));
-    const vehicleMap = new Map(vehicles.map((v) => [v.id, v]));
+    const customerMap = new Map();
+    customers.forEach((customer) => {
+      if (!customer) return;
+      const keys = [customer.id, customer.mongoId, customer._id].filter(Boolean);
+      keys.forEach((key) => customerMap.set(String(key), customer));
+    });
+    const vehicleMap = new Map();
+    vehicles.forEach((vehicle) => {
+      if (!vehicle) return;
+      const keys = [vehicle.id, vehicle.mongoId, vehicle._id].filter(Boolean);
+      keys.forEach((key) => vehicleMap.set(String(key), vehicle));
+    });
     const serviceMap = new Map(
       services.map((s) => [String(s._id || s.id), s])
     );
@@ -92,13 +102,34 @@ function JobCards() {
   const resolveOwnerMongoId = (job) => {
     const ownerId = resolveOwnerId(job);
     if (!ownerId) return "";
-    const customer = customers.find((entry) => entry.id === ownerId);
+    const customer = customers.find(
+      (entry) =>
+        String(entry.id) === String(ownerId) ||
+        String(entry.mongoId) === String(ownerId) ||
+        String(entry._id) === String(ownerId)
+    );
     return customer?.mongoId || "";
   };
   const resolveVehicleMongoId = (job) => {
     if (!job?.vehicleId) return "";
-    const vehicle = vehicles.find((entry) => entry.id === job.vehicleId);
+    const vehicle = vehicles.find(
+      (entry) =>
+        String(entry.id) === String(job.vehicleId) ||
+        String(entry.mongoId) === String(job.vehicleId) ||
+        String(entry._id) === String(job.vehicleId)
+    );
     return vehicle?.mongoId || "";
+  };
+
+  const resolveVehicleLinkId = (vehicleId) => {
+    if (!vehicleId) return "";
+    const vehicle = vehicles.find(
+      (entry) =>
+        String(entry.id) === String(vehicleId) ||
+        String(entry.mongoId) === String(vehicleId) ||
+        String(entry._id) === String(vehicleId)
+    );
+    return vehicle?.id || vehicle?.mongoId || vehicle?._id || vehicleId;
   };
 
   const statusCounts = useMemo(() => {
@@ -165,6 +196,10 @@ function JobCards() {
                   title: task.title,
                   isRequired: Boolean(task.isRequired),
                   completed: Boolean(task.completed),
+                  standardLaborHours: Number(task.standardLaborHours) || 0,
+                  laborHourRate: Number(task.laborHourRate) || 0,
+                  assignedStaffId:
+                    task.assignedStaffId || task.staffId || task.workerId || "",
                 }))
                 .filter((task) => task.title)
             : [],
@@ -233,12 +268,8 @@ function JobCards() {
     setSelectedWorkers(normalizeAssignedWorkers(job));
     setAssignedWorkerText(job.assignedWorker || "");
     setJobStatus(job.status || "OPEN");
-    setLaborCharges(
-      job.laborCharges !== undefined && job.laborCharges !== null
-        ? String(job.laborCharges)
-        : ""
-    );
     setPaymentStatus(job.paymentStatus || "UNPAID");
+    setBillingType(job.billingType || "BILLABLE");
     setWorkNotes(job.workNotes || "");
     setPartsUsed(job.partsUsed || []);
     setJobServices(normalizeJobServices(job.services || []));
@@ -255,7 +286,6 @@ function JobCards() {
       setInventoryItems(Array.isArray(data) ? data : []);
     } catch (error) {
       if (error.response?.status === 401 || error.response?.status === 403) {
-        navigate("/login", { replace: true });
       }
       setModalError(
         error.response?.data?.message ||
@@ -299,6 +329,18 @@ function JobCards() {
     );
   };
 
+  const updateTaskAssignment = (serviceIndex, taskIndex, staffId) => {
+    setJobServices((prev) =>
+      prev.map((service, index) => {
+        if (index !== serviceIndex) return service;
+        const tasks = (service.tasks || []).map((task, idx) =>
+          idx === taskIndex ? { ...task, assignedStaffId: staffId } : task
+        );
+        return { ...service, tasks };
+      })
+    );
+  };
+
   const resolveServiceName = (service) =>
     lookup.serviceMap.get(String(service.serviceType))?.name || "Service";
 
@@ -325,6 +367,45 @@ function JobCards() {
       ),
     [inventoryItems, selectedInventoryId]
   );
+
+  const laborChargesTotal = useMemo(() => {
+    return jobServices.reduce((sum, service) => {
+      const tasks = Array.isArray(service.tasks) ? service.tasks : [];
+      return (
+        sum +
+        tasks.reduce((taskSum, task) => {
+          const rate = Number(task.laborHourRate) || 0;
+          return taskSum + rate;
+        }, 0)
+      );
+    }, 0);
+  }, [jobServices]);
+
+  const laborHoursTotal = useMemo(() => {
+    return jobServices.reduce((sum, service) => {
+      const tasks = Array.isArray(service.tasks) ? service.tasks : [];
+      return (
+        sum +
+        tasks.reduce((taskSum, task) => {
+          const hours = Number(task.standardLaborHours) || 0;
+          return taskSum + hours;
+        }, 0)
+      );
+    }, 0);
+  }, [jobServices]);
+
+  const materialsTotal = useMemo(() => {
+    return partsUsed.reduce((sum, part) => {
+      const item = inventoryItems.find(
+        (inv) => String(inv._id) === String(part.inventoryId)
+      );
+      const unitPrice =
+        (part.unitPrice ?? Number(item?.sellingPrice)) || 0;
+      return sum + (Number(part.quantity) || 0) * unitPrice;
+    }, 0);
+  }, [inventoryItems, partsUsed]);
+
+  const totalAmount = laborChargesTotal + materialsTotal;
 
   const addPartUsage = () => {
     if (!selectedInventoryId || !partQuantity) return;
@@ -422,6 +503,7 @@ function JobCards() {
           vehicleId: vehicleMongoId || activeJobCard.vehicleId,
           services: activeJobCard.services || [],
           status: activeJobCard.status || "OPEN",
+          billingType,
           createdAt: activeJobCard.createdAt,
         });
         mongoId = data?._id || data?.id;
@@ -442,9 +524,10 @@ function JobCards() {
       const payload = {
         status: jobStatus,
         partsUsed,
-        laborCharges: Number(laborCharges) || 0,
+        laborCharges: laborChargesTotal,
         workNotes,
         services: jobServices,
+        billingType,
       };
       if (isWorkerFallback) {
         payload.assignedWorker = assignedWorkerText.trim();
@@ -458,6 +541,10 @@ function JobCards() {
 
       await api.patch(`/job-cards/${mongoId}`, payload);
 
+      const completedAtValue =
+        payload.status === "COMPLETED"
+          ? activeJobCard.completedAt || new Date().toISOString()
+          : activeJobCard.completedAt;
       const updated = allJobs.map((job) =>
         job.id === activeJobCard.id
           ? {
@@ -470,12 +557,13 @@ function JobCards() {
               laborCharges: payload.laborCharges,
               paymentStatus: payload.paymentStatus ?? job.paymentStatus,
               workNotes: payload.workNotes,
+              billingType: payload.billingType ?? job.billingType,
               services: payload.services ?? job.services,
+              completedAt: completedAtValue,
             }
           : job
       );
-      setAllJobs(updated);
-      saveJobCards(updated);
+        setAllJobs(updated);
       setActiveJobCard((prev) =>
         prev
           ? {
@@ -490,6 +578,7 @@ function JobCards() {
               paymentStatus: payload.paymentStatus ?? prev.paymentStatus,
               workNotes: payload.workNotes,
               services: payload.services ?? prev.services,
+              completedAt: completedAtValue,
             }
           : prev
       );
@@ -498,7 +587,6 @@ function JobCards() {
       }
     } catch (error) {
       if (error.response?.status === 401 || error.response?.status === 403) {
-        navigate("/login", { replace: true });
       }
       setModalError(
         error.response?.data?.message || "Unable to save changes. Try again."
@@ -540,8 +628,7 @@ function JobCards() {
       const updated = allJobs.map((job) =>
         job.id === activeJobCard.id ? { ...job, status: "CLOSED" } : job
       );
-      setAllJobs(updated);
-      saveJobCards(updated);
+        setAllJobs(updated);
       closeModal();
     } catch (error) {
       setModalError(
@@ -640,21 +727,29 @@ function JobCards() {
                 <th>Service Type</th>
                 <th>Status</th>
                 <th>Created Date</th>
+                <th>Completed Date</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {filteredJobs.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="job-cards-empty">
+                  <td colSpan="8" className="job-cards-empty">
                     No active job cards match your filters.
                   </td>
                 </tr>
               ) : (
                 filteredJobs.map((job) => {
                   const ownerId = resolveOwnerId(job);
-                  const customer = lookup.customerMap.get(ownerId);
-                  const vehicle = lookup.vehicleMap.get(job.vehicleId);
+                  const customer =
+                    lookup.customerMap.get(String(ownerId)) ||
+                    lookup.customerMap.get(String(job.customerId || "")) ||
+                    lookup.customerMap.get(String(job.ownerId || ""));
+                  const vehicle =
+                    lookup.vehicleMap.get(String(job.vehicleId || "")) || null;
+                  const jobLabel =
+                    job.jobCardNo || job.id || job._id || "—";
+                  const vehicleLinkId = resolveVehicleLinkId(job.vehicleId);
                   const status = job.status || "OPEN";
                   const badgeClass =
                     status === "IN_PROGRESS"
@@ -665,8 +760,8 @@ function JobCards() {
                       ? "status-badge status-badge--closed"
                       : "status-badge";
                   return (
-                    <tr key={job.id}>
-                      <td>{job.id}</td>
+                    <tr key={job.id || job._id}>
+                      <td>{jobLabel}</td>
                       <td>{vehicle?.vehicleNumber ?? "Unknown"}</td>
                       <td>{customer?.name ?? "Unknown"}</td>
                       <td>{resolveServices(job.services ?? []) || "-"}</td>
@@ -676,6 +771,11 @@ function JobCards() {
                       <td>
                         {job.createdAt
                           ? new Date(job.createdAt).toLocaleDateString()
+                          : "-"}
+                      </td>
+                      <td>
+                        {job.completedAt
+                          ? new Date(job.completedAt).toLocaleDateString()
                           : "-"}
                       </td>
                       <td>
@@ -689,7 +789,7 @@ function JobCards() {
                           </button>
                           <Link
                             className="job-cards-action"
-                            to={`/vehicles/${job.vehicleId}`}
+                            to={`/vehicles/${vehicleLinkId}`}
                           >
                             Vehicle Profile
                           </Link>
@@ -757,6 +857,14 @@ function JobCards() {
                       : "-"}
                   </strong>
                 </div>
+                <div>
+                  <span>Completed Date</span>
+                  <strong>
+                    {activeJobCard.completedAt
+                      ? new Date(activeJobCard.completedAt).toLocaleDateString()
+                      : "-"}
+                  </strong>
+                </div>
               </div>
             </div>
 
@@ -782,25 +890,25 @@ function JobCards() {
                         </span>
                       </div>
                       {service.tasks?.length ? (
-                        <div className="job-card-modal__checklist">
+                        <div className="job-card-modal__task-table">
+                          <div className="job-card-modal__task-row job-card-modal__task-row--head">
+                            <span>Task Name</span>
+                            <span>Labor Hours</span>
+                            <span>Labor Cost</span>
+                          </div>
                           {service.tasks.map((task, taskIndex) => (
-                            <label
+                            <div
                               key={`${service.serviceType}-${task.title}-${taskIndex}`}
-                              className="job-card-modal__checklist-item"
+                              className="job-card-modal__task-row"
                             >
-                              <input
-                                type="checkbox"
-                                checked={Boolean(task.completed)}
-                                disabled={isReadOnly}
-                                onChange={() =>
-                                  toggleTaskCompletion(serviceIndex, taskIndex)
-                                }
-                              />
+                              <span>{task.title}</span>
                               <span>
-                                {task.title}
-                                {task.isRequired ? " (Required)" : ""}
+                                {(Number(task.standardLaborHours) || 0).toFixed(2)}
                               </span>
-                            </label>
+                              <span>
+                                {(Number(task.laborHourRate) || 0).toFixed(2)}
+                              </span>
+                            </div>
                           ))}
                         </div>
                       ) : (
@@ -942,6 +1050,20 @@ function JobCards() {
                     </option>
                   ))}
                 </select>
+                {jobStatus === "COMPLETED" ? (
+                  <>
+                    <label htmlFor="labor-charges">Labor Charges</label>
+                    <input
+                      id="labor-charges"
+                      type="number"
+                      value={laborChargesTotal.toFixed(2)}
+                      readOnly
+                    />
+                    <p className="job-card-modal__hint">
+                      Total labor hours: {laborHoursTotal.toFixed(2)}
+                    </p>
+                  </>
+                ) : null}
               </div>
             </div>
 
@@ -1075,34 +1197,21 @@ function JobCards() {
                     </div>
                     <div className="materials-total">
                       <span>Total Cost</span>
-                      <strong>
-                        {partsUsed.reduce((sum, part) => {
-                          const item = inventoryItems.find(
-                            (inv) =>
-                              String(inv._id) === String(part.inventoryId)
-                          );
-                          const unitPrice =
-                            (part.unitPrice ?? Number(item?.sellingPrice)) || 0;
-                          return (
-                            sum + (Number(part.quantity) || 0) * unitPrice
-                          );
-                        }, 0)}
-                      </strong>
+                      <strong>{materialsTotal.toFixed(2)}</strong>
                     </div>
                   </>
                 )}
               </div>
             </div>
-            <div className="job-card-modal__section job-card-modal__split">              <div>
-                <h3>Labor Charges</h3>
-                <label htmlFor="labor-charges">Amount</label>
+            <div className="job-card-modal__section job-card-modal__split job-card-modal__split--three">
+              <div>
+                <h3>Payment</h3>
+                <label htmlFor="total-amount">Total Amount</label>
                 <input
-                  id="labor-charges"
+                  id="total-amount"
                   type="number"
-                  min="0"
-                  value={laborCharges}
-                  onChange={(event) => setLaborCharges(event.target.value)}
-                  disabled={isReadOnly}
+                  value={totalAmount.toFixed(2)}
+                  readOnly
                 />
               </div>
 
@@ -1119,7 +1228,21 @@ function JobCards() {
                   <option value="PARTIAL">PARTIAL</option>
                   <option value="PAID">PAID</option>
                 </select>
-                
+              </div>
+              <div>
+                <h3>Billing Type</h3>
+                <label htmlFor="billing-type">Type</label>
+                <select
+                  id="billing-type"
+                  value={billingType}
+                  onChange={(event) => setBillingType(event.target.value)}
+                  disabled={isReadOnly}
+                >
+                  <option value="BILLABLE">BILLABLE</option>
+                  <option value="WARRANTY">WARRANTY</option>
+                  <option value="REWORK">REWORK</option>
+                  <option value="FREE">FREE</option>
+                </select>
               </div>
             </div>
 

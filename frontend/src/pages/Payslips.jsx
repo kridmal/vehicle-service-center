@@ -35,6 +35,9 @@ const buildPayslipHtml = (payslip) => {
   const monthLabel = formatMonthLabel(payslip.month, payslip.year);
   const adjustments = payslip.adjustments || {};
   const deductions = payslip.deductions || {};
+  const laborSummary = payslip.laborSummary || {};
+  const overtimeSummary = payslip.overtimeSummary || {};
+  const allowances = payslip.allowances || {};
   const workingDays = Number(payslip.workingDays) || 0;
   const perDayRate = Number(payslip.perDayRate) || 0;
   const completedJobs = Number(payslip.completedJobs) || 0;
@@ -43,6 +46,13 @@ const buildPayslipHtml = (payslip) => {
   const approvedLeaveDays = Number(payslip.approvedLeaveDays) || 0;
   const lopDays = Number(payslip.lopDays) || 0;
   const lopAmount = Number(payslip.lopAmount) || 0;
+  const totalLaborHours = Number(laborSummary.totalLaborHours) || 0;
+  const incentiveAmount = Number(laborSummary.incentiveAmount) || 0;
+  const otHours = Number(overtimeSummary.approvedOtHours) || 0;
+  const otRate = Number(overtimeSummary.otRate) || 0;
+  const otAmount = Number(overtimeSummary.otAmount) || 0;
+  const allowanceTotal =
+    Number(allowances.recurringTotal) + Number(allowances.oneOffTotal || 0);
   const grossSalary = Number(payslip.grossSalary) || 0;
   const netSalary = Number(payslip.netSalary) || 0;
 
@@ -131,6 +141,26 @@ const buildPayslipHtml = (payslip) => {
         <div class="label">Completed Jobs</div>
         <div class="value">${completedJobs}</div>
       </div>
+      <div>
+        <div class="label">Total Labor Hours</div>
+        <div class="value">${totalLaborHours.toFixed(2)}</div>
+      </div>
+      <div>
+        <div class="label">Incentive Amount</div>
+        <div class="value">${formatMoney(incentiveAmount)}</div>
+      </div>
+      <div>
+        <div class="label">OT Hours</div>
+        <div class="value">${otHours.toFixed(2)}</div>
+      </div>
+      <div>
+        <div class="label">OT Amount</div>
+        <div class="value">${formatMoney(otAmount)}</div>
+      </div>
+      <div>
+        <div class="label">Allowances</div>
+        <div class="value">${formatMoney(allowanceTotal)}</div>
+      </div>
     </div>
   </div>
 
@@ -138,6 +168,9 @@ const buildPayslipHtml = (payslip) => {
     <h3>Earnings</h3>
     <table>
       <tr><td>Gross Earnings</td><td>${formatMoney(grossSalary)}</td></tr>
+      <tr><td>Allowances</td><td>${formatMoney(allowanceTotal)}</td></tr>
+      <tr><td>Incentive</td><td>${formatMoney(incentiveAmount)}</td></tr>
+      <tr><td>Overtime (${otHours.toFixed(2)}h @ ${formatMoney(otRate)})</td><td>${formatMoney(otAmount)}</td></tr>
       <tr><td>Bonus</td><td>${formatMoney(adjustments.bonus)}</td></tr>
     </table>
 
@@ -181,7 +214,6 @@ function Payslips() {
         setStaff(Array.isArray(data) ? data : []);
       } catch (error) {
         if (error.response?.status === 401) {
-          navigate("/login", { replace: true });
           return;
         }
         if (error.response?.status === 403) {
@@ -191,7 +223,7 @@ function Payslips() {
       }
     };
     loadStaff();
-  }, [navigate]);
+  }, []);
 
   useEffect(() => {
     const loadPayslips = async () => {
@@ -216,7 +248,6 @@ function Payslips() {
         }
       } catch (error) {
         if (error.response?.status === 401) {
-          navigate("/login", { replace: true });
           return;
         }
         if (error.response?.status === 403) {
@@ -488,6 +519,37 @@ function Payslips() {
               <span>Completed Jobs</span>
               <strong>{selectedPayslip.completedJobs || 0}</strong>
             </div>
+            <div>
+              <span>Total Labor Hours</span>
+              <strong>{selectedPayslip.laborSummary?.totalLaborHours || 0}</strong>
+            </div>
+            <div>
+              <span>Incentive Amount</span>
+              <strong>
+                {formatMoney(selectedPayslip.laborSummary?.incentiveAmount)}
+              </strong>
+            </div>
+            <div>
+              <span>OT Hours</span>
+              <strong>
+                {selectedPayslip.overtimeSummary?.approvedOtHours || 0}
+              </strong>
+            </div>
+            <div>
+              <span>OT Amount</span>
+              <strong>
+                {formatMoney(selectedPayslip.overtimeSummary?.otAmount)}
+              </strong>
+            </div>
+            <div>
+              <span>Allowances</span>
+              <strong>
+                {formatMoney(
+                  (selectedPayslip.allowances?.recurringTotal || 0) +
+                    (selectedPayslip.allowances?.oneOffTotal || 0)
+                )}
+              </strong>
+            </div>
           </div>
           <div className="payslip-breakdown">
             <div>
@@ -496,6 +558,31 @@ function Payslips() {
                 <li>
                   <span>Gross Earnings</span>
                   <strong>{formatMoney(selectedPayslip.grossSalary)}</strong>
+                </li>
+                <li>
+                  <span>Allowances</span>
+                  <strong>
+                    {formatMoney(
+                      (selectedPayslip.allowances?.recurringTotal || 0) +
+                        (selectedPayslip.allowances?.oneOffTotal || 0)
+                    )}
+                  </strong>
+                </li>
+                <li>
+                  <span>Incentive</span>
+                  <strong>
+                    {formatMoney(
+                      selectedPayslip.laborSummary?.incentiveAmount
+                    )}
+                  </strong>
+                </li>
+                <li>
+                  <span>Overtime</span>
+                  <strong>
+                    {formatMoney(
+                      selectedPayslip.overtimeSummary?.otAmount
+                    )}
+                  </strong>
                 </li>
                 <li>
                   <span>Bonus</span>

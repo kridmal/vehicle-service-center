@@ -337,6 +337,10 @@
   gap: 16px;
 }
 
+.job-card-modal__split--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .job-card-modal__split > * {
   min-width: 0;
 }
@@ -578,6 +582,38 @@
   color: #64748b;
 }
 
+.job-card-modal__task-table {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.job-card-modal__task-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) 1fr 1fr;
+  gap: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #0f172a;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.job-card-modal__task-row:last-child {
+  border-bottom: none;
+}
+
+.job-card-modal__task-row--head {
+  background: #f8fafc;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #64748b;
+}
+
 .job-card-modal__checklist {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -598,6 +634,26 @@
 
 .job-card-modal__checklist-item input {
   accent-color: #1e3a8a;
+}
+
+.job-card-modal__task-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.job-card-modal__task-meta {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.job-card-modal__checklist-item select {
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: #ffffff;
 }
 
 .job-card-modal__muted {

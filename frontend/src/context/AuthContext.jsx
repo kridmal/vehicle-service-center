@@ -4,58 +4,76 @@ import api, { TOKEN_KEY } from "../services/api.js";
 const AuthContext = createContext(null);
 const USER_KEY = "ksc_user";
 
-function readStoredAuth() {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const rawUser = localStorage.getItem(USER_KEY);
-  if (!token) return { isAuthenticated: false, user: null, token: null };
-
+function readStoredToken() {
   try {
-    const user = rawUser ? JSON.parse(rawUser) : null;
-    return { isAuthenticated: Boolean(user), user, token };
+    return localStorage.getItem(TOKEN_KEY);
   } catch {
-    return { isAuthenticated: false, user: null, token: null };
+    return null;
   }
 }
 
 export function AuthProvider({ children }) {
-  const [auth, setAuth] = useState(readStoredAuth);
+  const [auth, setAuth] = useState({
+    isAuthenticated: false,
+    user: null,
+    token: readStoredToken(),
+  });
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (auth.token) {
-      localStorage.setItem(TOKEN_KEY, auth.token);
-      localStorage.setItem(USER_KEY, JSON.stringify(auth.user));
+      try {
+        localStorage.setItem(TOKEN_KEY, auth.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(auth.user));
+      } catch {
+        // Ignore storage errors.
+      }
     } else {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
+      try {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+      } catch {
+        // Ignore storage errors.
+      }
     }
   }, [auth]);
 
   useEffect(() => {
-    const handleLogout = () => {
-      setAuth({ isAuthenticated: false, user: null, token: null });
-    };
-
-    window.addEventListener("auth:logout", handleLogout);
-    return () => window.removeEventListener("auth:logout", handleLogout);
-  }, []);
-
-  useEffect(() => {
-    if (!auth.token) return;
     let isActive = true;
+    const token = readStoredToken();
+    if (!token) {
+      setAuth({ isAuthenticated: false, user: null, token: null });
+      setIsLoading(false);
+      return () => {
+        isActive = false;
+      };
+    }
 
     const restoreSession = async () => {
       try {
-        const { data } = await api.get("/auth/me");
+        const { data } = await api.get("/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (isActive) {
-          setAuth((prev) => ({
-            ...prev,
-            isAuthenticated: true,
-            user: data.user,
-          }));
+          const user = data?.user || (data?.id ? data : null);
+          if (!user) {
+            setAuth({ isAuthenticated: false, user: null, token: null });
+          } else {
+            setAuth({ isAuthenticated: true, user, token });
+          }
         }
       } catch {
         if (isActive) {
+          try {
+            localStorage.removeItem(TOKEN_KEY);
+          } catch {
+            // Ignore storage errors.
+          }
           setAuth({ isAuthenticated: false, user: null, token: null });
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
         }
       }
     };
@@ -65,16 +83,24 @@ export function AuthProvider({ children }) {
     return () => {
       isActive = false;
     };
-  }, [auth.token]);
+  }, []);
 
   const value = useMemo(
     () => ({
       isAuthenticated: auth.isAuthenticated,
+      isLoading,
       user: auth.user,
       login: async (email, password) => {
         try {
           const { data } = await api.post("/auth/login", { email, password });
+          try {
+            localStorage.setItem(TOKEN_KEY, data.token);
+            localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+          } catch {
+            // Ignore storage errors.
+          }
           setAuth({ isAuthenticated: true, user: data.user, token: data.token });
+          setIsLoading(false);
           return { ok: true };
         } catch (error) {
           const message =
@@ -82,9 +108,12 @@ export function AuthProvider({ children }) {
           return { ok: false, message };
         }
       },
-      logout: () => setAuth({ isAuthenticated: false, user: null, token: null }),
+      logout: () => {
+        setAuth({ isAuthenticated: false, user: null, token: null });
+        setIsLoading(false);
+      },
     }),
-    [auth]
+    [auth, isLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -172,10 +172,116 @@
   flex-wrap: wrap;
 }
 
+.attendance-actions--end {
+  justify-content: flex-end;
+}
+
+.attendance-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.attendance-tab {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.attendance-tab.active {
+  background: #1e3a8a;
+  border-color: #1e3a8a;
+  color: #ffffff;
+}
+
+.attendance-form-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.attendance-summary {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.attendance-table--compact {
+  min-width: 900px;
+}
+
+.attendance-pill.is-warning {
+  background: #fde68a;
+  color: #92400e;
+}
+
+.attendance-pill.status-pending {
+  background: #fde68a;
+  color: #92400e;
+}
+
+.attendance-pill.status-approved {
+  background: #bbf7d0;
+  color: #166534;
+}
+
+.attendance-pill.status-rejected {
+  background: #fecaca;
+  color: #991b1b;
+}
+
+.attendance-pill.status-draft {
+  background: #e2e8f0;
+  color: #1f2937;
+}
+
+.attendance-pill.status-pending {
+  background: #fed7aa;
+  color: #9a3412;
+}
+
+.attendance-pill.status-completed {
+  background: #bbf7d0;
+  color: #166534;
+}
+
+.attendance-pill.status-locked {
+  background: #1e3a8a;
+  color: #ffffff;
+}
+
+.attendance-pill.status-finalized {
+  background: #bfdbfe;
+  color: #1e3a8a;
+}
+
+.attendance-pill.status-paid {
+  background: #dcfce7;
+  color: #166534;
+}
+
 .attendance-action--secondary {
   background: #ffffff;
   color: #1e3a8a;
   border: 1px solid #cbd5e1;
+}
+
+.attendance-action--outline {
+  background: #ffffff;
+  color: #1e3a8a;
+  border: 1px solid #1e3a8a;
 }
 
 .attendance-action:disabled {
@@ -183,8 +289,208 @@
   cursor: not-allowed;
 }
 
+.attendance-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.attendance-modal__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 40;
+}
+
+.attendance-modal {
+  width: min(760px, 95vw);
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.attendance-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attendance-modal__head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.attendance-modal__head p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.attendance-modal__close {
+  border: none;
+  background: #f1f5f9;
+  color: #0f172a;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.attendance-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.attendance-modal__holidays {
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.attendance-modal__holidays-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.attendance-modal__holidays-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.attendance-modal__holidays-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.attendance-modal__holiday-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.attendance-modal__holiday-input input {
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  padding: 8px 10px;
+}
+
+.attendance-modal__holiday-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.attendance-modal__holiday-chip {
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.attendance-modal__holiday-chip button {
+  border: none;
+  background: #f1f5f9;
+  color: #0f172a;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.attendance-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.attendance-modal__custom {
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.attendance-modal__custom-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.attendance-modal__custom-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.attendance-modal__weekday-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.attendance-modal__weekday {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.attendance-modal__weekday input {
+  accent-color: #1e3a8a;
+}
+
+.attendance-modal__custom-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.attendance-modal__custom-dates-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-weight: 600;
+  color: #0f172a;
+}
+
 @media (max-width: 720px) {
   .attendance-card {
+    padding: 16px;
+  }
+
+  .attendance-modal {
     padding: 16px;
   }
 }

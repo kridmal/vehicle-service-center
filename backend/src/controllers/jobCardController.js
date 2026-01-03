@@ -3,6 +3,9 @@ import JobCard from "../models/JobCard.js";
 import InventoryItem from "../models/InventoryItem.js";
 import Invoice from "../models/Invoice.js";
 import Staff from "../models/Staff.js";
+import LaborHourEntry from "../models/LaborHourEntry.js";
+import LaborHourDetail from "../models/LaborHourDetail.js";
+import LaborHourLog from "../models/LaborHourLog.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -12,6 +15,9 @@ const normalizeServiceTasks = (tasks = []) =>
       title: task.title?.trim(),
       isRequired: Boolean(task.isRequired),
       completed: Boolean(task.completed),
+      standardLaborHours: Number(task.standardLaborHours) || 0,
+      laborHourRate: Number(task.laborHourRate) || 0,
+      assignedStaffId: task.assignedStaffId || task.staffId,
     }))
     .filter((task) => task.title);
 
@@ -52,6 +58,7 @@ export const createJobCard = async (req, res, next) => {
       services,
       status,
       createdAt,
+      billingType,
     } = req.body;
     const resolvedOwnerId = ownerId || customerId;
     if (!jobCardNo || !resolvedOwnerId || !vehicleId) {
@@ -78,9 +85,45 @@ export const createJobCard = async (req, res, next) => {
       customerId: resolvedOwnerId,
       vehicleId,
       services: normalizedServices,
+      billingType: billingType || "BILLABLE",
       status: status || "OPEN",
       createdAt: createdAt ? new Date(createdAt) : undefined,
     });
+
+    if (jobCard.status === "COMPLETED") {
+      const completedAt = new Date();
+      const laborEntries = buildLaborEntries({
+        jobCard,
+        assignedWorkers: jobCard.assignedWorkers,
+        completedAt,
+      });
+      if (laborEntries.length > 0) {
+        await LaborHourEntry.insertMany(laborEntries);
+      }
+
+      const laborDetails = buildLaborDetailEntries({
+        jobCard,
+        assignedWorkers: jobCard.assignedWorkers,
+        completedAt,
+      });
+      if (laborDetails.length > 0) {
+        await LaborHourDetail.insertMany(laborDetails);
+      }
+
+      const existingLogs = await LaborHourLog.findOne({
+        jobCardId: jobCard._id,
+      });
+      if (!existingLogs) {
+        const logs = await buildLaborHourLogs({
+          jobCard,
+          assignedWorkers: jobCard.assignedWorkers,
+          completedAt,
+        });
+        if (logs.length > 0) {
+          await LaborHourLog.insertMany(logs);
+        }
+      }
+    }
 
     return res.status(201).json(jobCard);
   } catch (error) {
@@ -142,6 +185,9 @@ const normalizeAssignedWorkers = async (assignedWorkers) => {
         }
         return { error: "Staff not found" };
       }
+      if (member.roleType === "OFFICE") {
+        return { error: "Office staff cannot be assigned to job cards" };
+      }
       const resolvedRoleName =
         member.roleName || member.role || entry.roleName;
       snapshots.push({
@@ -164,6 +210,177 @@ const normalizeAssignedWorkers = async (assignedWorkers) => {
   }
 
   return { snapshots };
+};
+
+const buildLaborEntries = ({ jobCard, assignedWorkers, completedAt }) => {
+  const billingType = jobCard.billingType || "BILLABLE";
+  const staffMap = new Map(
+    (assignedWorkers || []).map((worker) => [String(worker.staffId), worker])
+  );
+  const tasks = (jobCard.services || [])
+    .flatMap((service) => service?.tasks || [])
+    .filter((task) => task && Number(task.standardLaborHours) > 0);
+
+  if (tasks.length === 0) return [];
+
+  const assignedIds = Array.from(staffMap.keys());
+  return tasks.flatMap((task) => {
+    const taskName = task.title;
+    const standardLaborHours = Number(task.standardLaborHours) || 0;
+    const laborHourRate = Number(task.laborHourRate) || 0;
+    const assignedStaffId = task.assignedStaffId
+      ? String(task.assignedStaffId)
+      : "";
+    if (assignedStaffId && staffMap.has(assignedStaffId)) {
+      const staff = staffMap.get(assignedStaffId);
+      return [
+        {
+          jobCardId: jobCard._id,
+          staffId: assignedStaffId,
+          staffName: staff?.name,
+          roleName: staff?.roleName,
+          taskName,
+          standardLaborHours,
+          laborHourRate,
+          date: completedAt,
+          billingType,
+        },
+      ];
+    }
+    if (assignedIds.length === 0) {
+      return [];
+    }
+    const splitHours = standardLaborHours / assignedIds.length;
+    return assignedIds.map((staffId) => {
+      const staff = staffMap.get(staffId);
+      return {
+        jobCardId: jobCard._id,
+        staffId,
+        staffName: staff?.name,
+        roleName: staff?.roleName,
+        taskName,
+        standardLaborHours: splitHours,
+        laborHourRate,
+        date: completedAt,
+        billingType,
+      };
+    });
+  });
+};
+
+const buildLaborDetailEntries = ({ jobCard, assignedWorkers, completedAt }) => {
+  const billingType = jobCard.billingType || "BILLABLE";
+  const staffMap = new Map(
+    (assignedWorkers || []).map((worker) => [String(worker.staffId), worker])
+  );
+  const tasks = (jobCard.services || [])
+    .flatMap((service) =>
+      (service?.tasks || []).map((task) => ({
+        ...task,
+        serviceType: service.serviceType,
+      }))
+    )
+    .filter((task) => task && Number(task.standardLaborHours) > 0);
+
+  if (tasks.length === 0) return [];
+
+  const assignedIds = Array.from(staffMap.keys());
+  return tasks.flatMap((task) => {
+    const taskName = task.title;
+    const serviceType = task.serviceType;
+    const standardLaborHours = Number(task.standardLaborHours) || 0;
+    const assignedStaffId = task.assignedStaffId
+      ? String(task.assignedStaffId)
+      : "";
+    if (assignedStaffId && staffMap.has(assignedStaffId)) {
+      const staff = staffMap.get(assignedStaffId);
+      return [
+        {
+          jobCardId: jobCard._id,
+          staffId: assignedStaffId,
+          staffName: staff?.name,
+          serviceType,
+          taskName,
+          standardLaborHours,
+          date: completedAt,
+          billingType,
+        },
+      ];
+    }
+    if (assignedIds.length === 0) {
+      return [];
+    }
+    const splitHours = standardLaborHours / assignedIds.length;
+    return assignedIds.map((staffId) => {
+      const staff = staffMap.get(staffId);
+      return {
+        jobCardId: jobCard._id,
+        staffId,
+        staffName: staff?.name,
+        serviceType,
+        taskName,
+        standardLaborHours: splitHours,
+        date: completedAt,
+        billingType,
+      };
+    });
+  });
+};
+
+const formatMonthKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+};
+
+const buildLaborHourLogs = async ({ jobCard, assignedWorkers, completedAt }) => {
+  const billingType = jobCard.billingType || "BILLABLE";
+  const tasks = (jobCard.services || [])
+    .flatMap((service) => service?.tasks || [])
+    .filter((task) => task && Number(task.standardLaborHours) > 0);
+  if (tasks.length === 0) return [];
+
+  const totalHours = tasks.reduce(
+    (sum, task) => sum + (Number(task.standardLaborHours) || 0),
+    0
+  );
+  if (totalHours <= 0) return [];
+
+  const assignedIds = Array.from(
+    new Set(
+      (assignedWorkers || [])
+        .map((worker) => worker.staffId || worker.workerId)
+        .filter(Boolean)
+        .map((id) => String(id))
+    )
+  );
+  if (assignedIds.length === 0) return [];
+
+  const technicalStaff = await Staff.find({
+    _id: { $in: assignedIds },
+    roleType: "TECHNICAL",
+  }).select("_id fullName");
+  const technicalMap = new Map(
+    technicalStaff.map((member) => [String(member._id), member])
+  );
+  const validIds = assignedIds.filter((id) => technicalMap.has(id));
+  if (validIds.length === 0) return [];
+
+  const perStaffHours = totalHours / validIds.length;
+  const month = formatMonthKey(completedAt);
+
+  return validIds.map((staffId) => {
+    const staff = technicalMap.get(staffId);
+    return {
+      jobCardId: jobCard._id,
+      staffId,
+      staffName: staff?.fullName,
+      date: completedAt,
+      month,
+      laborHours: perStaffHours,
+      billingType,
+    };
+  });
 };
 
 export const updateJobCard = async (req, res, next) => {
@@ -344,12 +561,54 @@ export const updateJobCard = async (req, res, next) => {
       paymentStatus: paymentStatus ?? jobCard.paymentStatus,
       workNotes: req.body.workNotes ?? jobCard.workNotes,
       services: incomingServices ?? jobCard.services,
+      billingType: req.body.billingType ?? jobCard.billingType ?? "BILLABLE",
     };
 
     const updated = await JobCard.findByIdAndUpdate(id, updatePayload, {
       new: true,
       runValidators: true,
     });
+
+    const shouldCreateLaborEntries =
+      nextStatus === "COMPLETED" && currentStatus !== "COMPLETED";
+    if (shouldCreateLaborEntries) {
+      const [existingEntries, existingDetails, existingLogs] = await Promise.all([
+        LaborHourEntry.findOne({ jobCardId: updated._id }),
+        LaborHourDetail.findOne({ jobCardId: updated._id }),
+        LaborHourLog.findOne({ jobCardId: updated._id }),
+      ]);
+      const completedAt = new Date();
+      if (!existingEntries) {
+        const laborEntries = buildLaborEntries({
+          jobCard: updated,
+          assignedWorkers: updated.assignedWorkers,
+          completedAt,
+        });
+        if (laborEntries.length > 0) {
+          await LaborHourEntry.insertMany(laborEntries);
+        }
+      }
+      if (!existingDetails) {
+        const laborDetails = buildLaborDetailEntries({
+          jobCard: updated,
+          assignedWorkers: updated.assignedWorkers,
+          completedAt,
+        });
+        if (laborDetails.length > 0) {
+          await LaborHourDetail.insertMany(laborDetails);
+        }
+      }
+      if (!existingLogs) {
+        const logs = await buildLaborHourLogs({
+          jobCard: updated,
+          assignedWorkers: updated.assignedWorkers,
+          completedAt,
+        });
+        if (logs.length > 0) {
+          await LaborHourLog.insertMany(logs);
+        }
+      }
+    }
 
     return res.json(updated);
   } catch (error) {

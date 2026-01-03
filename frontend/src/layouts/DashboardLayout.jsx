@@ -1,16 +1,59 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
+import api from "../services/api.js";
+import { readJson, writeJson } from "../utils/cache.js";
 import Sidebar from "./Sidebar.jsx";
 import "./DashboardLayout.css";
 
 function DashboardLayout({ children }) {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
   const isOwner = user?.role === "OWNER";
+
+  useEffect(() => {
+    const refreshCache = async (key, endpoint) => {
+      try {
+        const { data } = await api.get(endpoint);
+        writeJson(key, Array.isArray(data) ? data : []);
+      } catch (error) {
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          return;
+        }
+      }
+    };
+
+    const hydrateCache = () => {
+      const cachedKeys = [
+        "ksc_customers",
+        "ksc_vehicles",
+        "ksc_job_cards",
+        "ksc_invoices",
+        "ksc_inventory",
+        "ksc_staff",
+        "ksc_services",
+        "ksc_inventory_categories",
+      ];
+      cachedKeys.forEach((key) => {
+        const cached = readJson(key, []);
+        if (!Array.isArray(cached)) {
+          writeJson(key, []);
+        }
+      });
+
+      refreshCache("ksc_customers", "/customers");
+      refreshCache("ksc_vehicles", "/vehicles");
+      refreshCache("ksc_job_cards", "/job-cards");
+      refreshCache("ksc_invoices", "/invoices");
+      refreshCache("ksc_inventory", "/inventory");
+      refreshCache("ksc_staff", "/staff");
+      refreshCache("ksc_services", "/services");
+      refreshCache("ksc_inventory_categories", "/inventory-categories");
+    };
+
+    hydrateCache();
+  }, []);
 
   const handleLogout = () => {
     logout();
-    navigate("/login", { replace: true });
   };
 
   return (

@@ -4,7 +4,7 @@ import Staff from "../models/Staff.js";
 const ROLE_TYPES = ["OFFICE", "TECHNICAL"];
 const OFFICE_ROLES = ["Owner", "Manager", "Cashier", "Receptionist"];
 const TECHNICAL_ROLES = ["Mechanic", "Technician", "Electrician", "Helper"];
-const SALARY_TYPES = ["FIXED", "PER_DAY", "COMMISSION", "HYBRID"];
+const SALARY_TYPES = ["FIXED", "PER_DAY"];
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -47,6 +47,7 @@ const normalizeSalaryType = (salaryType) => {
   if (!salaryType) return "";
   const normalized = String(salaryType).trim().toUpperCase();
   if (normalized === "PER_JOB") return "PER_DAY";
+  if (normalized === "COMMISSION" || normalized === "HYBRID") return "FIXED";
   return SALARY_TYPES.includes(normalized) ? normalized : "";
 };
 
@@ -69,6 +70,28 @@ const parseNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const normalizeAllowances = (allowances) => {
+  if (!allowances) return [];
+  if (Array.isArray(allowances)) {
+    return allowances
+      .map((entry) => ({
+        label: entry?.label ? String(entry.label).trim() : "",
+        amount: parseNumber(entry?.amount) ?? 0,
+      }))
+      .filter((entry) => entry.label || entry.amount > 0);
+  }
+  const amount = parseNumber(allowances);
+  if (amount === undefined) return [];
+  return [{ label: "Allowance", amount }];
+};
+
+const normalizeIncentivePercentage = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null;
+  return parsed;
+};
+
 const resolveRoleDefaults = (staff) => {
   const roleType = normalizeRoleType(staff.roleType, staff.role);
   const resolvedRoleType = roleType || "TECHNICAL";
@@ -83,11 +106,18 @@ const serializeStaff = (staff) => {
   const payload = staff.toObject({ getters: true, virtuals: false });
   payload.roleType = roleType;
   payload.roleName = roleName;
-  if (payload.salaryType === "PER_JOB") {
-    payload.salaryType = "PER_DAY";
+  if (payload.salaryType === "PER_JOB") payload.salaryType = "PER_DAY";
+  if (payload.salaryType === "COMMISSION" || payload.salaryType === "HYBRID") {
+    payload.salaryType = "FIXED";
   }
   if (!payload.role) {
     payload.role = roleName.toUpperCase();
+  }
+  if (payload.baseSalary === undefined) {
+    payload.baseSalary = payload.basicSalary ?? 0;
+  }
+  if (!Array.isArray(payload.allowances)) {
+    payload.allowances = [];
   }
   return payload;
 };
@@ -145,8 +175,11 @@ export const createStaff = async (req, res, next) => {
       roleName,
       salaryType,
       basicSalary,
-      commissionPercentage,
+      baseSalary,
       perDayRate,
+      incentiveEligible,
+      incentivePercentage,
+      allowances,
       active,
       notes,
       idNumber,
@@ -172,9 +205,11 @@ export const createStaff = async (req, res, next) => {
     }
 
     const normalizedSalaryType = normalizeSalaryType(salaryType) || "FIXED";
-    const normalizedBasicSalary = parseNumber(basicSalary ?? req.body.baseSalary);
-    const normalizedCommission = parseNumber(commissionPercentage);
+    const normalizedBasicSalary = parseNumber(basicSalary ?? baseSalary);
     const normalizedPerDay = parseNumber(perDayRate);
+    const normalizedIncentivePercentage =
+      normalizeIncentivePercentage(incentivePercentage);
+    const normalizedAllowances = normalizeAllowances(allowances);
 
     if (
       normalizedBasicSalary !== undefined &&
@@ -185,14 +220,6 @@ export const createStaff = async (req, res, next) => {
     if (normalizedPerDay !== undefined && normalizedPerDay < 0) {
       return res.status(400).json({ message: "Invalid per day rate" });
     }
-    if (
-      normalizedCommission !== undefined &&
-      (normalizedCommission < 0 || normalizedCommission > 100)
-    ) {
-      return res
-        .status(400)
-        .json({ message: "Commission must be between 0 and 100" });
-    }
 
     const staff = await Staff.create({
       fullName,
@@ -201,8 +228,10 @@ export const createStaff = async (req, res, next) => {
       roleName: normalizedRoleName,
       salaryType: normalizedSalaryType,
       basicSalary: normalizedBasicSalary,
-      commissionPercentage: normalizedCommission,
       perDayRate: normalizedPerDay,
+      incentiveEligible: Boolean(incentiveEligible),
+      incentivePercentage: normalizedIncentivePercentage,
+      allowances: normalizedAllowances,
       active: active !== undefined ? Boolean(active) : true,
       notes,
       idNumber,
@@ -256,8 +285,13 @@ export const updateStaff = async (req, res, next) => {
       updates.skills = normalizeSkills(updates.skills);
     }
 
-    if (updates.basicSalary !== undefined || updates.baseSalary !== undefined) {
-      const normalized = parseNumber(updates.basicSalary ?? updates.baseSalary);
+    if (
+      updates.basicSalary !== undefined ||
+      updates.baseSalary !== undefined
+    ) {
+      const normalized = parseNumber(
+        updates.basicSalary ?? updates.baseSalary
+      );
       if (normalized !== undefined && normalized < 0) {
         return res.status(400).json({ message: "Invalid basic salary" });
       }
@@ -273,17 +307,28 @@ export const updateStaff = async (req, res, next) => {
       updates.perDayRate = normalized;
     }
 
-    if (updates.commissionPercentage !== undefined) {
-      const normalized = parseNumber(updates.commissionPercentage);
+    if (updates.incentiveEligible !== undefined) {
+      updates.incentiveEligible = Boolean(updates.incentiveEligible);
+    }
+
+    if (updates.incentivePercentage !== undefined) {
+      const normalized = normalizeIncentivePercentage(
+        updates.incentivePercentage
+      );
       if (
-        normalized !== undefined &&
-        (normalized < 0 || normalized > 100)
+        updates.incentivePercentage !== null &&
+        updates.incentivePercentage !== undefined &&
+        normalized === null
       ) {
         return res
           .status(400)
-          .json({ message: "Commission must be between 0 and 100" });
+          .json({ message: "Invalid incentive percentage" });
       }
-      updates.commissionPercentage = normalized;
+      updates.incentivePercentage = normalized;
+    }
+
+    if (updates.allowances !== undefined) {
+      updates.allowances = normalizeAllowances(updates.allowances);
     }
 
     const staff = await Staff.findByIdAndUpdate(id, updates, {

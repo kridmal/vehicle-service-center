@@ -7,6 +7,10 @@ const payslipSchema = new mongoose.Schema(
       ref: "Staff",
       required: true,
     },
+    payrollRunId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PayrollRun",
+    },
     staffSnapshot: {
       name: { type: String, trim: true },
       roleName: { type: String, trim: true },
@@ -24,8 +28,10 @@ const payslipSchema = new mongoose.Schema(
     completedJobs: { type: Number, min: 0, default: 0 },
     earnings: {
       baseSalary: { type: Number, min: 0, default: 0 },
-      laborShare: { type: Number, min: 0, default: 0 },
-      commission: { type: Number, min: 0, default: 0 },
+      perDayEarnings: { type: Number, min: 0, default: 0 },
+      incentive: { type: Number, min: 0, default: 0 },
+      overtime: { type: Number, min: 0, default: 0 },
+      allowances: { type: Number, min: 0, default: 0 },
       bonus: { type: Number, min: 0, default: 0 },
     },
     adjustments: {
@@ -41,6 +47,22 @@ const payslipSchema = new mongoose.Schema(
     },
     grossSalary: { type: Number, min: 0, default: 0 },
     netSalary: { type: Number, min: 0, default: 0 },
+    laborSummary: {
+      completedJobs: { type: Number, min: 0, default: 0 },
+      totalLaborHours: { type: Number, min: 0, default: 0 },
+      targetHours: { type: Number, min: 0, default: 0 },
+      extraHours: { type: Number, min: 0, default: 0 },
+      incentiveAmount: { type: Number, min: 0, default: 0 },
+    },
+    overtimeSummary: {
+      approvedOtHours: { type: Number, min: 0, default: 0 },
+      otRate: { type: Number, min: 0, default: 0 },
+      otAmount: { type: Number, min: 0, default: 0 },
+    },
+    allowances: {
+      recurringTotal: { type: Number, min: 0, default: 0 },
+      oneOffTotal: { type: Number, min: 0, default: 0 },
+    },
     status: {
       type: String,
       enum: ["UNPAID", "PAID"],

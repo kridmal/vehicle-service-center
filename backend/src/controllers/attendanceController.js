@@ -32,10 +32,40 @@ const normalizeWorkingDays = (value) => {
   return parsed;
 };
 
+const parseTimeToMinutes = (value) => {
+  if (!value) return null;
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+};
+
+const normalizeDailyEntries = (entries = []) =>
+  entries
+    .map((entry) => {
+      const date = String(entry?.date || "").trim();
+      const workStart = String(entry?.workStart || "").trim();
+      const workEnd = String(entry?.workEnd || "").trim();
+      const startMinutes = parseTimeToMinutes(workStart);
+      const endMinutes = parseTimeToMinutes(workEnd);
+      if (!date || startMinutes === null || endMinutes === null) return null;
+      if (endMinutes <= startMinutes) return null;
+      const workHours = (endMinutes - startMinutes) / 60;
+      const otHours = Math.max(0, workHours - 8);
+      return {
+        date,
+        workStart,
+        workEnd,
+        otHours,
+        otApproved: Boolean(entry?.otApproved),
+      };
+    })
+    .filter(Boolean);
+
 const hasBaseSalary = (salaryType) =>
-  ["FIXED", "PER_DAY", "HYBRID"].includes(
-    String(salaryType || "").toUpperCase()
-  );
+  ["FIXED", "PER_DAY"].includes(String(salaryType || "").toUpperCase());
 
 export const listAttendance = async (req, res, next) => {
   try {
@@ -70,8 +100,16 @@ export const listAttendance = async (req, res, next) => {
 
 export const upsertAttendance = async (req, res, next) => {
   try {
-    const { staffId, month, year, workingDays, presentDays, halfDays, approvedLeaveDays } =
-      req.body;
+    const {
+      staffId,
+      month,
+      year,
+      workingDays,
+      presentDays,
+      halfDays,
+      approvedLeaveDays,
+      dailyEntries,
+    } = req.body;
 
     if (!staffId || !isValidId(staffId)) {
       return res.status(400).json({ message: "Invalid staff id" });
@@ -130,6 +168,26 @@ export const upsertAttendance = async (req, res, next) => {
     const isFixedSalary = ["FIXED", "HYBRID"].includes(normalizedSalaryType);
     const lopAmount = !isPerDay && isFixedSalary ? lopDays * perDayValue : 0;
 
+    const existingRecord = await Attendance.findOne({
+      staffId,
+      month: normalizedMonth,
+      year: normalizedYear,
+    });
+    const normalizedDailyEntries = Array.isArray(dailyEntries)
+      ? normalizeDailyEntries(dailyEntries)
+      : Array.isArray(existingRecord?.dailyEntries)
+      ? existingRecord.dailyEntries
+      : [];
+    const totalOtHours = normalizedDailyEntries.reduce(
+      (sum, entry) => sum + (Number(entry.otHours) || 0),
+      0
+    );
+    const approvedOtHours = normalizedDailyEntries.reduce(
+      (sum, entry) =>
+        sum + (entry.otApproved ? Number(entry.otHours) || 0 : 0),
+      0
+    );
+
     const update = {
       staffId,
       staffSnapshot: {
@@ -147,6 +205,9 @@ export const upsertAttendance = async (req, res, next) => {
       absentDays,
       lopDays,
       lopAmount,
+      dailyEntries: normalizedDailyEntries,
+      otHours: totalOtHours,
+      otApprovedHours: approvedOtHours,
     };
 
     const record = await Attendance.findOneAndUpdate(

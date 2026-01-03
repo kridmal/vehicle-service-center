@@ -1,0 +1,44 @@
+.app-bootstrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f6f0e8 0%, #e8eef6 100%);
+  padding: 24px;
+}
+
+.app-bootstrap__card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 32px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 20px 60px rgba(30, 39, 52, 0.12);
+  color: #1d2a35;
+  font-weight: 600;
+}
+
+.app-bootstrap__spinner {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 4px solid rgba(29, 42, 53, 0.15);
+  border-top-color: #1d2a35;
+  animation: bootstrap-spin 0.9s linear infinite;
+}
+
+@keyframes bootstrap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 600px) {
+  .app-bootstrap__card {
+    width: 100%;
+    padding: 28px;
+    text-align: center;
+  }
+}

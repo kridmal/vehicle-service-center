@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
-import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import api from "../services/api.js";
-import { getJobCards } from "../utils/storage.js";
+import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import "./VehicleProfile.css";
 
 const HISTORY_PAGE_SIZE = 8;
@@ -11,11 +10,10 @@ const REPORT_PAGE_SIZE = 4;
 
 function VehicleProfile() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [customers] = useLocalStorageState("ksc_customers", []);
   const [vehicles] = useLocalStorageState("ksc_vehicles", []);
-  const [jobCards, setJobCards] = useState([]);
-  const [services, setServices] = useState([]);
+  const [jobCards] = useLocalStorageState("ksc_job_cards", []);
+  const [services, setServices] = useLocalStorageState("ksc_services", []);
   const [historyPage, setHistoryPage] = useState(1);
   const [reportsPage, setReportsPage] = useState(1);
   const [activeJobCardId, setActiveJobCardId] = useState("");
@@ -24,22 +22,17 @@ function VehicleProfile() {
   const [invoiceError, setInvoiceError] = useState("");
 
   useEffect(() => {
-    setJobCards(getJobCards());
-  }, []);
-
-  useEffect(() => {
     const loadServices = async () => {
       try {
         const { data } = await api.get("/services");
         setServices(Array.isArray(data) ? data : []);
       } catch (error) {
         if (error.response?.status === 401 || error.response?.status === 403) {
-          navigate("/login", { replace: true });
         }
       }
     };
     loadServices();
-  }, [navigate]);
+  }, []);
 
   const serviceMap = useMemo(
     () =>

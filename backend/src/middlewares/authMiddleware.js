@@ -48,3 +48,19 @@ export const requireOwner = (req, res, next) => {
   }
   return next();
 };
+
+export const requireOwnerOrAdmin = (req, res, next) => {
+  const role = req.user?.role;
+  if (role !== "OWNER" && role !== "ADMIN") {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+  return next();
+};
+
+export const requireOwnerOrOperator = (req, res, next) => {
+  const role = req.user?.role;
+  if (role !== "OWNER" && role !== "OPERATOR") {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+  return next();
+};

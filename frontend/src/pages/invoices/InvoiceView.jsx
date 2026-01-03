@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import PageHeader from "../../components/PageHeader.jsx";
 import { useLocalStorageState } from "../../hooks/useLocalStorageState.js";
 import api from "../../services/api.js";
-import { getJobCards } from "../../utils/storage.js";
 import "./InvoiceView.css";
 
 function InvoiceView() {
@@ -13,11 +12,13 @@ function InvoiceView() {
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [hasPrinted, setHasPrinted] = useState(false);
-  const [localJobCards, setLocalJobCards] = useState([]);
-  const [serviceTypes, setServiceTypes] = useState([]);
+  const [localJobCards] = useLocalStorageState("ksc_job_cards", []);
+  const [serviceTypes, setServiceTypes] = useLocalStorageState(
+    "ksc_services",
+    []
+  );
   const [customers] = useLocalStorageState("ksc_customers", []);
   const [vehicles] = useLocalStorageState("ksc_vehicles", []);
-  const navigate = useNavigate();
   const location = useLocation();
   const shouldPrint =
     new URLSearchParams(location.search).get("print") === "1";
@@ -31,7 +32,6 @@ function InvoiceView() {
         setPaymentStatus(data.paymentStatus || "UNPAID");
       } catch (error) {
         if (error.response?.status === 401 || error.response?.status === 403) {
-          navigate("/login", { replace: true });
           return;
         }
         setError(
@@ -41,7 +41,7 @@ function InvoiceView() {
       }
     };
     loadInvoice();
-  }, [id, navigate]);
+  }, [id]);
 
   useEffect(() => {
     const loadServices = async () => {
@@ -53,14 +53,6 @@ function InvoiceView() {
       }
     };
     loadServices();
-  }, []);
-
-  useEffect(() => {
-    try {
-      setLocalJobCards(getJobCards());
-    } catch (storageError) {
-      setLocalJobCards([]);
-    }
   }, []);
 
   useEffect(() => {

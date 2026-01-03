@@ -5,7 +5,7 @@ function OwnerRoute() {
   const { isAuthenticated, user } = useAuth();
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return null;
   }
 
   if (user?.role !== "OWNER") {

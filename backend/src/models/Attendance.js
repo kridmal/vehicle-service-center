@@ -22,6 +22,20 @@ const attendanceSchema = new mongoose.Schema(
     absentDays: { type: Number, min: 0, default: 0 },
     lopDays: { type: Number, min: 0, default: 0 },
     lopAmount: { type: Number, min: 0, default: 0 },
+    dailyEntries: {
+      type: [
+        {
+          date: { type: String, trim: true },
+          workStart: { type: String, trim: true },
+          workEnd: { type: String, trim: true },
+          otHours: { type: Number, min: 0, default: 0 },
+          otApproved: { type: Boolean, default: false },
+        },
+      ],
+      default: [],
+    },
+    otHours: { type: Number, min: 0, default: 0 },
+    otApprovedHours: { type: Number, min: 0, default: 0 },
   },
   { timestamps: true }
 );

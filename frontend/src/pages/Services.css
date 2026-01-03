@@ -128,7 +128,7 @@
 
 .services-task-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr 140px 140px auto auto;
   gap: 12px;
   align-items: end;
 }

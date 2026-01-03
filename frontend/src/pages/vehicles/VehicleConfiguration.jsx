@@ -30,7 +30,6 @@ function VehicleConfiguration() {
       setBrands(Array.isArray(data) ? data : []);
     } catch (error) {
       if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
         return;
       }
       if (error.response?.status === 403) {

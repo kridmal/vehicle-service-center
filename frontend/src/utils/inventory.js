@@ -1,3 +1,5 @@
+import { readJson, writeJson } from "./cache.js";
+
 const INVENTORY_KEY = "ksc_inventory";
 
 const normalize = (value) => String(value ?? "").trim().toLowerCase();
@@ -8,11 +10,11 @@ const toNumber = (value) => {
 };
 
 export const getInventory = () => {
-  return JSON.parse(localStorage.getItem(INVENTORY_KEY) || "[]");
+  return readJson(INVENTORY_KEY, []);
 };
 
 export const saveInventory = (items) => {
-  localStorage.setItem(INVENTORY_KEY, JSON.stringify(items));
+  writeJson(INVENTORY_KEY, items);
 };
 
 export const matchInventoryItem = (partItem, inventory) => {
