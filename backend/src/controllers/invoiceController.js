@@ -4,6 +4,7 @@ import InventoryItem from "../models/InventoryItem.js";
 import Invoice from "../models/Invoice.js";
 import JobCard from "../models/JobCard.js";
 import Vehicle from "../models/Vehicle.js";
+import { updateLoyaltyStats } from "./loyaltyController.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -21,6 +22,55 @@ const buildInvoiceNumber = async () => {
     return buildInvoiceNumber();
   }
   return candidate;
+};
+
+/**
+ * Recalculate the loyalty discount from appliedRewards using actual invoice values.
+ * This is needed because the frontend calculates the discount at job card creation time
+ * when laborCharges may not yet be known (e.g. free_labor rewards show 0 discount).
+ */
+const calculateLoyaltyDiscount = (laborCharges, partsTotal, appliedRewards) => {
+  if (!appliedRewards || appliedRewards.length === 0) {
+    return { totalDiscount: 0, rewards: [] };
+  }
+
+  let totalDiscount = 0;
+  const rewards = appliedRewards.map((reward) => {
+    let discountAmount = 0;
+
+    switch (reward.rewardType) {
+      case "free_labor":
+        discountAmount = laborCharges;
+        break;
+      case "discount_percentage": {
+        const subtotal = partsTotal + laborCharges;
+        discountAmount = subtotal * ((reward.rewardValue || 0) / 100);
+        if (reward.maxDiscountAmount) {
+          discountAmount = Math.min(discountAmount, reward.maxDiscountAmount);
+        }
+        break;
+      }
+      case "discount_amount":
+        discountAmount = reward.rewardValue || 0;
+        break;
+      case "free_service":
+        discountAmount = toNumber(reward.discountAmount);
+        break;
+      default:
+        break;
+    }
+
+    totalDiscount += discountAmount;
+    return {
+      ruleId: reward.ruleId,
+      ruleName: reward.ruleName,
+      rewardType: reward.rewardType,
+      rewardValue: reward.rewardValue,
+      discountAmount,
+    };
+  });
+
+  return { totalDiscount, rewards };
 };
 
 const buildPartsUsed = (partsUsed, inventoryItems) => {
@@ -55,10 +105,30 @@ const buildPartsUsed = (partsUsed, inventoryItems) => {
 export const listInvoices = async (req, res, next) => {
   try {
     const query = {};
+
+    // Filter by job card
     if (req.query?.jobCardId && isValidId(req.query.jobCardId)) {
       query.jobCard = req.query.jobCardId;
     }
-    const invoices = await Invoice.find(query).sort({ createdAt: -1 });
+
+    // Filter by invoice type
+    if (req.query?.type && ["SALE", "JOB_CARD"].includes(req.query.type)) {
+      query.invoiceType = req.query.type;
+    }
+
+    // Filter by payment status
+    if (req.query?.status && ["PAID", "UNPAID", "PARTIAL"].includes(req.query.status)) {
+      query.paymentStatus = req.query.status;
+    }
+
+    const invoices = await Invoice.find(query)
+      .populate("customer", "name phone email")
+      .populate("vehicle", "vehicleNumber brandName modelName")
+      .populate("jobCard", "jobCardNumber")
+      .populate("sale")
+      .populate("createdBy", "name")
+      .sort({ createdAt: -1 });
+
     return res.json(invoices);
   } catch (error) {
     return next(error);
@@ -124,7 +194,17 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
       0
     );
     const laborCharges = toNumber(jobCard.laborCharges);
-    const totalAmount = partsTotal + laborCharges;
+
+    // Recalculate loyalty discount from appliedRewards using actual labor/parts values.
+    // The frontend-stored loyaltyDiscount may be 0 for free_labor rewards because
+    // laborCharges aren't known at job card creation time.
+    const { totalDiscount: loyaltyDiscount, rewards: resolvedRewards } =
+      calculateLoyaltyDiscount(
+        laborCharges,
+        partsTotal,
+        jobCard.appliedRewards || []
+      );
+    const totalAmount = Math.max(partsTotal + laborCharges - loyaltyDiscount, 0);
 
     const ownerCandidate = jobCard.ownerId || jobCard.customerId;
     const customerId = isValidId(ownerCandidate) ? ownerCandidate : null;
@@ -140,17 +220,27 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
     const invoiceNumber = await buildInvoiceNumber();
     const invoice = await Invoice.create({
       invoiceNumber,
+      invoiceType: "JOB_CARD",
+      sale: null,
       jobCard: jobCard._id,
       jobCardNo: jobCard.jobCardNo,
       customer: customer?._id,
       vehicle: vehicle?._id,
       customerName: customer?.name || "",
       vehicleNumber: vehicle?.vehicleNumber || "",
+      items: partsUsed,
       partsUsed,
       laborCharges,
+      subtotal: partsTotal + laborCharges,
+      discount: loyaltyDiscount,
       totalAmount,
+      appliedRewards: resolvedRewards,
+      paidAmount: 0,
+      balanceAmount: totalAmount,
+      paymentMethod: null,
       paymentStatus: "UNPAID",
       status: "DRAFT",
+      createdBy: req.user?.id,
     });
 
     return res.status(201).json(invoice);
@@ -177,6 +267,7 @@ export const updateInvoice = async (req, res, next) => {
       }
     }
 
+    let wasJustFinalized = false;
     if (req.body.status) {
       if (invoice.status === "FINALIZED") {
         return res.status(400).json({ message: "Invoice is already finalized" });
@@ -185,6 +276,7 @@ export const updateInvoice = async (req, res, next) => {
         return res.status(400).json({ message: "Invalid invoice status" });
       }
       invoice.status = "FINALIZED";
+      wasJustFinalized = true;
     }
 
     if (req.body.paymentStatus) {
@@ -201,6 +293,21 @@ export const updateInvoice = async (req, res, next) => {
     }
 
     const saved = await invoice.save();
+
+    // Update customer loyalty stats when invoice is finalized
+    if (wasJustFinalized && invoice.customer) {
+      try {
+        await updateLoyaltyStats(
+          invoice.customer,
+          invoice.totalAmount || 0,
+          invoice.jobCard
+        );
+      } catch (loyaltyError) {
+        console.error("Error updating loyalty stats:", loyaltyError);
+        // Don't fail the invoice update if loyalty update fails
+      }
+    }
+
     return res.json(saved);
   } catch (error) {
     return next(error);

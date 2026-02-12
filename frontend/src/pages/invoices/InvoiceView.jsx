@@ -390,11 +390,79 @@ function InvoiceView() {
           <div>
             <h2>Labor Charges</h2>
             <div className="invoice-labor">
-              <strong>{formatCurrency(laborCharges)}</strong>
+              {invoice.appliedRewards?.some((r) => r.rewardType === "free_labor") ? (
+                <>
+                  <strong style={{ textDecoration: "line-through", color: "#9ca3af" }}>
+                    {formatCurrency(laborCharges)}
+                  </strong>
+                  <strong style={{ color: "#16a34a", marginLeft: 8 }}>
+                    {formatCurrency(0)}
+                  </strong>
+                  <span style={{ color: "#16a34a", fontSize: 12, marginLeft: 6 }}>
+                    (Free Labor Reward)
+                  </span>
+                </>
+              ) : invoice.appliedRewards?.some(
+                  (r) => r.rewardType === "discount_percentage" && r.discountAmount > 0
+                ) ? (
+                <>
+                  <strong style={{ textDecoration: "line-through", color: "#9ca3af" }}>
+                    {formatCurrency(laborCharges)}
+                  </strong>
+                  <strong style={{ color: "#16a34a", marginLeft: 8 }}>
+                    {formatCurrency(
+                      laborCharges -
+                        invoice.appliedRewards
+                          .filter((r) => r.rewardType === "discount_percentage")
+                          .reduce((sum, r) => sum + (r.discountAmount || 0), 0)
+                    )}
+                  </strong>
+                </>
+              ) : (
+                <strong>{formatCurrency(laborCharges)}</strong>
+              )}
               {invoice.laborDescription ? (
                 <p>{invoice.laborDescription}</p>
               ) : null}
             </div>
+
+            {invoice.appliedRewards?.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <h2>Loyalty Rewards</h2>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {invoice.appliedRewards.map((reward, idx) => (
+                    <div
+                      key={reward.ruleId || idx}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "4px 8px",
+                        background: "#f0fdf4",
+                        borderRadius: 4,
+                        border: "1px solid #bbf7d0",
+                        fontSize: 13,
+                      }}
+                    >
+                      <span>
+                        {reward.ruleName || "Loyalty Reward"}
+                        <span style={{ color: "#6b7280", marginLeft: 6, fontSize: 12 }}>
+                          {reward.rewardType === "free_labor" && "(Free Labor)"}
+                          {reward.rewardType === "discount_percentage" && `(${reward.rewardValue}% Off)`}
+                          {reward.rewardType === "discount_amount" && `(LKR ${reward.rewardValue} Off)`}
+                          {reward.rewardType === "free_service" && "(Free Service)"}
+                        </span>
+                      </span>
+                      {reward.discountAmount > 0 && (
+                        <strong style={{ color: "#16a34a" }}>
+                          -{formatCurrency(reward.discountAmount)}
+                        </strong>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <div className="invoice-summary">
             <h2>Summary</h2>
@@ -404,11 +472,41 @@ function InvoiceView() {
             </div>
             <div className="invoice-summary-row">
               <span>Labor Charges</span>
-              <strong>{formatCurrency(laborCharges)}</strong>
+              {discountAmount > 0 && invoice.appliedRewards?.some(
+                (r) => r.rewardType === "free_labor" || r.rewardType === "discount_percentage"
+              ) ? (
+                <strong>
+                  <span style={{ textDecoration: "line-through", color: "#9ca3af", marginRight: 8 }}>
+                    {formatCurrency(laborCharges)}
+                  </span>
+                  <span style={{ color: "#16a34a" }}>
+                    {formatCurrency(
+                      invoice.appliedRewards.some((r) => r.rewardType === "free_labor")
+                        ? 0
+                        : Math.max(
+                            laborCharges -
+                              invoice.appliedRewards
+                                .filter((r) => r.rewardType === "discount_percentage")
+                                .reduce((sum, r) => sum + (r.discountAmount || 0), 0),
+                            0
+                          )
+                    )}
+                  </span>
+                </strong>
+              ) : (
+                <strong>{formatCurrency(laborCharges)}</strong>
+              )}
             </div>
             {discountAmount ? (
-              <div className="invoice-summary-row">
-                <span>Discount</span>
+              <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
+                <span>
+                  Loyalty Discount
+                  {invoice.appliedRewards?.length > 0 && (
+                    <small style={{ display: "block", fontSize: 11, color: "#6b7280" }}>
+                      {invoice.appliedRewards.map((r) => r.ruleName).filter(Boolean).join(", ")}
+                    </small>
+                  )}
+                </span>
                 <strong>-{formatCurrency(discountAmount)}</strong>
               </div>
             ) : null}
