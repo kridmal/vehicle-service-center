@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+ï»¿import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../services/api.js";
 import { useLocalStorageState } from "../../hooks/useLocalStorageState.js";
@@ -55,16 +55,16 @@ function DashboardPage() {
     .slice(0, 5);
 
   const formatKpi = (value) => {
-    if (summaryError) return "—";
+    if (summaryError) return "-";
     if (summaryLoading) return null;
-    if (value === null || value === undefined) return "—";
+    if (value === null || value === undefined) return "-";
     return Number(value).toLocaleString("en-US");
   };
 
   const formatCount = (value) => {
-    if (summaryError) return "—";
-    if (summaryLoading) return "—";
-    if (value === null || value === undefined) return "—";
+    if (summaryError) return "-";
+    if (summaryLoading) return "-";
+    if (value === null || value === undefined) return "-";
     return Number(value).toLocaleString("en-US");
   };
 
@@ -138,6 +138,43 @@ function DashboardPage() {
             </p>
             <p className="kpi-meta">Open + In progress</p>
           </div>
+          <div className="kpi-card">
+            <p className="kpi-label">Attendance Today</p>
+            <p className="kpi-value">
+              {summaryLoading ? (
+                <span className="kpi-skeleton" />
+              ) : (
+                `${formatCount(summary?.todayAttendance?.present)} / ${formatCount(
+                  summary?.todayAttendance?.absent
+                )}`
+              )}
+            </p>
+            <p className="kpi-meta">Present / Absent</p>
+          </div>
+          <div className="kpi-card">
+            <p className="kpi-label">Pending Leave Requests</p>
+            <p className="kpi-value">
+              {summaryLoading ? (
+                <span className="kpi-skeleton" />
+              ) : (
+                formatCount(summary?.pendingLeaveRequests)
+              )}
+            </p>
+            <p className="kpi-meta">Awaiting review</p>
+          </div>
+          <div className="kpi-card">
+            <p className="kpi-label">Current Payroll</p>
+            <p className="kpi-value">
+              {summaryLoading ? (
+                <span className="kpi-skeleton" />
+              ) : (
+                Object.entries(summary?.payrollCurrentMonthStatus || {})
+                  .map(([status, count]) => `${status}:${count}`)
+                  .join(" | ") || "No run"
+              )}
+            </p>
+            <p className="kpi-meta">Monthly status mix</p>
+          </div>
         </div>
       </section>
 
@@ -194,9 +231,7 @@ function DashboardPage() {
               {lowStockItems.map((item) => (
                 <li className="low-stock__item" key={item.id}>
                   <div>
-                    <p className="low-stock__name">
-                      {item.itemName || item.name}
-                    </p>
+                    <p className="low-stock__name">{item.itemName || item.name}</p>
                     <p className="low-stock__meta">{item.unit} remaining</p>
                   </div>
                   <span className="low-stock__qty">{item.quantity}</span>

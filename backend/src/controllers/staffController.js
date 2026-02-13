@@ -1,5 +1,9 @@
 import mongoose from "mongoose";
+import LeaveBalance from "../models/LeaveBalance.js";
+import LeaveType from "../models/LeaveType.js";
+import Role from "../models/Role.js";
 import Staff from "../models/Staff.js";
+import { logAudit } from "../utils/audit.js";
 
 const ROLE_TYPES = ["OFFICE", "TECHNICAL"];
 const OFFICE_ROLES = ["Owner", "Manager", "Cashier", "Receptionist"];
@@ -63,6 +67,11 @@ const normalizeSkills = (skills) => {
     .filter(Boolean);
 };
 
+const nextEmployeeId = async () => {
+  const count = await Staff.countDocuments();
+  return `EMP-${String(count + 1).padStart(4, "0")}`;
+};
+
 const parseNumber = (value) => {
   if (value === null || value === undefined || value === "") return undefined;
   const parsed = Number(value);
@@ -117,17 +126,81 @@ const buildRoleQuery = (roleType) => {
   };
 };
 
+const ensureLeaveBalances = async (employee) => {
+  const year = new Date().getFullYear();
+  const leaveTypes = await LeaveType.find({ isActive: { $ne: false } });
+  for (const leaveType of leaveTypes) {
+    if (
+      leaveType.applicableTo === "permanent" &&
+      employee.employmentType !== "permanent"
+    ) {
+      continue;
+    }
+    if (
+      leaveType.applicableTo === "daily-paid" &&
+      employee.employmentType !== "daily-paid"
+    ) {
+      continue;
+    }
+    const allocated = Number(leaveType.allocationPerYear || leaveType.maxDaysPerYear || 0);
+    await LeaveBalance.findOneAndUpdate(
+      { employeeId: employee._id, leaveTypeId: leaveType._id, year },
+      {
+        $setOnInsert: {
+          employeeId: employee._id,
+          leaveTypeId: leaveType._id,
+          year,
+          allocated,
+          used: 0,
+          carryForward: 0,
+          remaining: allocated,
+          lastUpdated: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+  }
+};
+
 export const listStaff = async (req, res, next) => {
   try {
     const activeQuery = String(req.query.active || "").toLowerCase();
     const activeOnly = activeQuery === "true";
     const activeFilter = activeOnly ? { active: true } : {};
+    const statusFilter = req.query.status ? { status: req.query.status } : {};
+    const employmentTypeFilter = req.query.employmentType
+      ? { employmentType: req.query.employmentType }
+      : {};
+    const departmentFilter = req.query.departmentId
+      ? { departmentId: req.query.departmentId }
+      : {};
+    const roleFilterDirect = req.query.roleId ? { roleId: req.query.roleId } : {};
+    const search = String(req.query.search || "").trim();
+    const searchFilter = search
+      ? {
+          $or: [
+            { fullName: new RegExp(search, "i") },
+            { employeeId: new RegExp(search, "i") },
+            { NIC: new RegExp(search, "i") },
+            { phoneNumber: new RegExp(search, "i") },
+            { email: new RegExp(search, "i") },
+          ],
+        }
+      : {};
     const roleType = normalizeRoleQuery(req.query.roleType);
     if (req.query.roleType && !roleType) {
       return res.status(400).json({ message: "Invalid role type filter" });
     }
     const roleFilter = buildRoleQuery(roleType);
-    const staff = await Staff.find({ ...activeFilter, ...roleFilter }).sort({
+    const staff = await Staff.find({
+      ...activeFilter,
+      ...statusFilter,
+      ...employmentTypeFilter,
+      ...departmentFilter,
+      ...roleFilterDirect,
+      ...roleFilter,
+      ...searchFilter,
+    }).sort({
       createdAt: -1,
     });
     return res.json(staff.map((member) => serializeStaff(member)));
@@ -151,6 +224,17 @@ export const createStaff = async (req, res, next) => {
       notes,
       idNumber,
       role,
+      roleId,
+      departmentId,
+      shiftId,
+      employeeType,
+      employmentType,
+      status,
+      email,
+      address,
+      NIC,
+      joinDate,
+      documents,
       skills,
     } = req.body;
     if (!fullName || !phoneNumber) {
@@ -194,11 +278,35 @@ export const createStaff = async (req, res, next) => {
         .json({ message: "Commission must be between 0 and 100" });
     }
 
+    if (roleId && !isValidId(roleId)) {
+      return res.status(400).json({ message: "Invalid roleId" });
+    }
+    if (roleId) {
+      const roleDoc = await Role.findById(roleId);
+      if (!roleDoc) return res.status(404).json({ message: "Role not found" });
+    }
+
+    const generatedEmployeeId = (req.body.employeeId || "").trim() || (await nextEmployeeId());
     const staff = await Staff.create({
+      employeeId: generatedEmployeeId,
       fullName,
+      email,
+      address,
+      NIC,
       phoneNumber,
+      phone: phoneNumber,
       roleType: normalizedRoleType,
       roleName: normalizedRoleName,
+      employeeType:
+        employeeType ||
+        (normalizedRoleType === "OFFICE" ? "office" : "technical"),
+      employmentType: employmentType || "permanent",
+      departmentId: departmentId || undefined,
+      roleId: roleId || undefined,
+      shiftId: shiftId || undefined,
+      joinDate: joinDate ? new Date(joinDate) : undefined,
+      status: status || (active === false ? "inactive" : "active"),
+      documents: Array.isArray(documents) ? documents : [],
       salaryType: normalizedSalaryType,
       basicSalary: normalizedBasicSalary,
       commissionPercentage: normalizedCommission,
@@ -208,6 +316,14 @@ export const createStaff = async (req, res, next) => {
       idNumber,
       role,
       skills: normalizeSkills(skills),
+    });
+    await ensureLeaveBalances(staff);
+    await logAudit({
+      req,
+      action: "create",
+      entity: "employee",
+      entityId: staff._id,
+      entityDescription: staff.fullName,
     });
 
     return res.status(201).json(serializeStaff(staff));
@@ -250,6 +366,11 @@ export const updateStaff = async (req, res, next) => {
         return res.status(400).json({ message: "Invalid salary type" });
       }
       updates.salaryType = normalizedSalaryType;
+    }
+    if (updates.roleId !== undefined) {
+      if (updates.roleId && !isValidId(updates.roleId)) {
+        return res.status(400).json({ message: "Invalid role id" });
+      }
     }
 
     if (updates.skills !== undefined) {
@@ -294,6 +415,16 @@ export const updateStaff = async (req, res, next) => {
       return res.status(404).json({ message: "Staff not found" });
     }
 
+    if (updates.employmentType !== undefined) {
+      await ensureLeaveBalances(staff);
+    }
+    await logAudit({
+      req,
+      action: "update",
+      entity: "employee",
+      entityId: staff._id,
+      entityDescription: staff.fullName,
+    });
     return res.json(serializeStaff(staff));
   } catch (error) {
     return next(error);
@@ -312,6 +443,13 @@ export const deleteStaff = async (req, res, next) => {
       return res.status(404).json({ message: "Staff not found" });
     }
 
+    await logAudit({
+      req,
+      action: "delete",
+      entity: "employee",
+      entityId: staff._id,
+      entityDescription: staff.fullName,
+    });
     return res.json({ message: "Staff deleted" });
   } catch (error) {
     return next(error);

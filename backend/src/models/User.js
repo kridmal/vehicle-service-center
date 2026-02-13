@@ -24,6 +24,8 @@ const userSchema = new mongoose.Schema(
       enum: ["OWNER", "OPERATOR"],
       default: "OPERATOR",
     },
+    roleId: { type: mongoose.Schema.Types.ObjectId, ref: "Role" },
+    permissions: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
 );

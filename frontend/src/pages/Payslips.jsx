@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
 import api from "../services/api.js";
 import "./Payslips.css";
@@ -10,277 +9,163 @@ const toMonthValue = (date) => {
   return `${year}-${month}`;
 };
 
-const parseMonthValue = (value) => {
-  if (!value) return null;
-  const [year, month] = value.split("-").map((part) => Number(part));
-  if (!year || !month) return null;
-  return { year, month };
-};
-
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 
-const formatMonthLabel = (month, year) => {
+const formatMonthLabel = (monthKey) => {
+  const [year, month] = String(monthKey || "").split("-").map(Number);
   const date = new Date(year, month - 1, 1);
   return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 };
 
-const buildPayslipHtml = (payslip) => {
-  const name = payslip.staffSnapshot?.name || "Staff";
-  const role = payslip.staffSnapshot?.roleName || "Role";
-  const salaryType = payslip.staffSnapshot?.salaryType || "FIXED";
-  const monthLabel = formatMonthLabel(payslip.month, payslip.year);
-  const adjustments = payslip.adjustments || {};
-  const deductions = payslip.deductions || {};
-  const workingDays = Number(payslip.workingDays) || 0;
-  const perDayRate = Number(payslip.perDayRate) || 0;
-  const completedJobs = Number(payslip.completedJobs) || 0;
-  const presentDays = Number(payslip.presentDays) || 0;
-  const halfDays = Number(payslip.halfDays) || 0;
-  const approvedLeaveDays = Number(payslip.approvedLeaveDays) || 0;
-  const lopDays = Number(payslip.lopDays) || 0;
-  const lopAmount = Number(payslip.lopAmount) || 0;
-  const grossSalary = Number(payslip.grossSalary) || 0;
-  const netSalary = Number(payslip.netSalary) || 0;
-
+const buildPayslipHtml = (record, employee) => {
+  const monthLabel = formatMonthLabel(record.month);
+  const allowances = record.earnings?.allowances || [];
+  const deductions = record.deductions?.otherDeductions || [];
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Payslip - ${name}</title>
+  <title>Payslip - ${record.employeeName}</title>
   <style>
-    body { font-family: "Segoe UI", Arial, sans-serif; margin: 24px; color: #0f172a; }
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 20px; color: #111827; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; }
-    .brand h1 { margin: 0; font-size: 22px; }
-    .brand p { margin: 4px 0 0; color: #475569; font-size: 12px; }
-    .meta { text-align: right; font-size: 12px; color: #475569; }
-    .meta strong { display: block; color: #0f172a; font-size: 14px; }
-    .card { margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; }
-    .value { font-size: 14px; font-weight: 600; }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-    th, td { text-align: left; padding: 8px 0; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
-    .net { margin-top: 16px; padding: 12px; background: #0f172a; color: #fff; border-radius: 10px; font-size: 16px; font-weight: 600; }
-    .signatures { margin-top: 32px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; font-size: 12px; color: #475569; }
-    .signatures span { display: block; margin-top: 36px; border-top: 1px solid #cbd5e1; padding-top: 6px; }
+    .title { font-size: 26px; font-weight: 700; }
+    .sub { color: #6b7280; font-size: 12px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 10px; margin-top: 14px; padding: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-size: 12px; }
+    .net { margin-top: 10px; font-size: 20px; font-weight: 700; }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="brand">
-      <h1>Vehicle Service Center</h1>
-      <p>Official Payslip Statement</p>
+    <div>
+      <div class="title">PAYSLIP</div>
+      <div class="sub">Vehicle Service Center - ${monthLabel}</div>
     </div>
-    <div class="meta">
-      <strong>${monthLabel}</strong>
-      Status: ${payslip.status || "UNPAID"}
-    </div>
+    <div class="sub">Generated: ${new Date(record.generatedAt || Date.now()).toLocaleString()}</div>
   </div>
-
   <div class="card">
     <div class="grid">
-      <div>
-        <div class="label">Staff Name</div>
-        <div class="value">${name}</div>
-      </div>
-      <div>
-        <div class="label">Role</div>
-        <div class="value">${role}</div>
-      </div>
-      <div>
-        <div class="label">Salary Type</div>
-        <div class="value">${salaryType}</div>
-      </div>
-      <div>
-        <div class="label">Period</div>
-        <div class="value">${monthLabel}</div>
-      </div>
-      <div>
-        <div class="label">Working Days</div>
-        <div class="value">${workingDays}</div>
-      </div>
-      <div>
-        <div class="label">Present Days</div>
-        <div class="value">${presentDays}</div>
-      </div>
-      <div>
-        <div class="label">Half Days</div>
-        <div class="value">${halfDays}</div>
-      </div>
-      <div>
-        <div class="label">Leave Days</div>
-        <div class="value">${approvedLeaveDays}</div>
-      </div>
-      <div>
-        <div class="label">Per Day Rate</div>
-        <div class="value">${formatMoney(perDayRate)}</div>
-      </div>
-      <div>
-        <div class="label">LOP Days</div>
-        <div class="value">${lopDays}</div>
-      </div>
-      <div>
-        <div class="label">LOP Amount</div>
-        <div class="value">${formatMoney(lopAmount)}</div>
-      </div>
-      <div>
-        <div class="label">Completed Jobs</div>
-        <div class="value">${completedJobs}</div>
-      </div>
+      <div><strong>Name:</strong> ${record.employeeName || "-"}</div>
+      <div><strong>NIC:</strong> ${employee?.NIC || employee?.idNumber || "-"}</div>
+      <div><strong>Role:</strong> ${employee?.roleName || "-"}</div>
+      <div><strong>Department:</strong> ${employee?.departmentName || "-"}</div>
+      <div><strong>Join Date:</strong> ${employee?.joinDate ? new Date(employee.joinDate).toLocaleDateString() : "-"}</div>
+      <div><strong>Status:</strong> ${record.status || "-"}</div>
     </div>
   </div>
-
   <div class="card">
-    <h3>Earnings</h3>
-    <table>
-      <tr><td>Gross Earnings</td><td>${formatMoney(grossSalary)}</td></tr>
-      <tr><td>Bonus</td><td>${formatMoney(adjustments.bonus)}</td></tr>
-    </table>
-
-    <h3>Deductions</h3>
-    <table>
-      <tr><td>LOP Amount</td><td>${formatMoney(lopAmount)}</td></tr>
-      <tr><td>Advance</td><td>${formatMoney(adjustments.advance ?? deductions.advance)}</td></tr>
-      <tr><td>Penalties</td><td>${formatMoney(adjustments.penalties ?? deductions.penalties)}</td></tr>
-      <tr><td>Other</td><td>${formatMoney(adjustments.other ?? deductions.other)}</td></tr>
-    </table>
-
-    <div class="net">Net Salary: ${formatMoney(netSalary)}</div>
+    <h4>Attendance</h4>
+    <div class="grid">
+      <div>Working Days: ${record.attendanceSummary?.workingDays || 0}</div>
+      <div>Present: ${record.attendanceSummary?.presentDays || 0}</div>
+      <div>Absent: ${record.attendanceSummary?.absentDays || 0}</div>
+      <div>Leave: ${record.attendanceSummary?.leaveDays || 0}</div>
+      <div>LOP: ${record.attendanceSummary?.lopDays || 0}</div>
+    </div>
   </div>
-
-  <div class="signatures">
-    <div>Prepared By<span></span></div>
-    <div>Staff Signature<span></span></div>
+  <div class="card">
+    <h4>Earnings</h4>
+    <table>
+      <tr><td>Basic Salary</td><td>${formatMoney(record.earnings?.basicSalary)}</td></tr>
+      ${allowances.map((row) => `<tr><td>${row.name}</td><td>${formatMoney(row.amount)}</td></tr>`).join("")}
+      <tr><td><strong>Gross</strong></td><td><strong>${formatMoney(record.earnings?.grossEarnings)}</strong></td></tr>
+    </table>
+    <h4>Deductions</h4>
+    <table>
+      <tr><td>LOP Deduction</td><td>${formatMoney(record.deductions?.lopDeduction)}</td></tr>
+      <tr><td>Half Day Deduction</td><td>${formatMoney(record.deductions?.halfDayDeduction)}</td></tr>
+      ${deductions.map((row) => `<tr><td>${row.name}</td><td>${formatMoney(row.amount)}</td></tr>`).join("")}
+      <tr><td><strong>Total Deductions</strong></td><td><strong>${formatMoney(record.deductions?.totalDeductions)}</strong></td></tr>
+    </table>
+    <div class="net">Net Salary: ${formatMoney(record.netSalary)}</div>
   </div>
+  <div class="sub" style="margin-top:18px">Authorized Signature: ____________________</div>
 </body>
 </html>`;
 };
 
 function Payslips() {
   const [staff, setStaff] = useState([]);
-  const [payslips, setPayslips] = useState([]);
-  const [selectedMonth, setSelectedMonth] = useState(() =>
-    toMonthValue(new Date())
-  );
+  const [records, setRecords] = useState([]);
+  const [selectedMonth, setSelectedMonth] = useState(() => toMonthValue(new Date()));
   const [selectedStaffId, setSelectedStaffId] = useState("");
-  const [selectedPayslip, setSelectedPayslip] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState("");
-  const [error, setError] = useState("");
   const detailsRef = useRef(null);
-  const navigate = useNavigate();
 
-  useEffect(() => {
-    const loadStaff = async () => {
-      try {
-        const { data } = await api.get("/staff");
-        setStaff(Array.isArray(data) ? data : []);
-      } catch (error) {
-        if (error.response?.status === 401) {
-          navigate("/login", { replace: true });
-          return;
-        }
-        if (error.response?.status === 403) {
-          navigate("/unauthorized", { replace: true });
-          return;
-        }
-      }
-    };
-    loadStaff();
-  }, [navigate]);
-
-  useEffect(() => {
-    const loadPayslips = async () => {
-      const monthInfo = parseMonthValue(selectedMonth);
-      if (!monthInfo) return;
-      setLoading(true);
-      setError("");
-      try {
-        const params = {
-          month: monthInfo.month,
-          year: monthInfo.year,
-        };
-        if (selectedStaffId) {
-          params.staffId = selectedStaffId;
-        }
-        const { data } = await api.get("/payslips", { params });
-        const list = Array.isArray(data) ? data : [];
-        setPayslips(list);
-        if (selectedPayslip) {
-          const refreshed = list.find((item) => item._id === selectedPayslip._id);
-          setSelectedPayslip(refreshed || null);
-        }
-      } catch (error) {
-        if (error.response?.status === 401) {
-          navigate("/login", { replace: true });
-          return;
-        }
-        if (error.response?.status === 403) {
-          navigate("/unauthorized", { replace: true });
-          return;
-        }
-        setError(
-          error.response?.data?.message ||
-            "Unable to load payslips. Please try again."
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadPayslips();
-  }, [navigate, selectedMonth, selectedStaffId]);
-
-  useEffect(() => {
-    if (!selectedPayslip || !detailsRef.current) return;
-    detailsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selectedPayslip]);
-
-  const summaryTotals = useMemo(() => {
-    return payslips.reduce(
-      (acc, item) => {
-        acc.totalNet += Number(item.netSalary) || 0;
-        acc.totalGross += Number(item.grossSalary) || 0;
-        return acc;
-      },
-      { totalNet: 0, totalGross: 0 }
-    );
-  }, [payslips]);
-
-  const showSummary =
-    !selectedPayslip && (selectedStaffId === "" || payslips.length > 1);
-
-  const handleView = (item) => {
-    setSelectedPayslip((prev) => (prev?._id === item._id ? null : item));
+  const load = async () => {
+    setLoading(true);
+    const [staffRes, payrollRes] = await Promise.all([
+      api.get("/staff"),
+      api.get("/payroll", { params: { month: selectedMonth, employeeId: selectedStaffId || undefined } }),
+    ]);
+    setStaff(Array.isArray(staffRes.data) ? staffRes.data : []);
+    setRecords(Array.isArray(payrollRes.data?.records) ? payrollRes.data.records : []);
+    setLoading(false);
   };
 
-  const handlePrint = (payslip) => {
+  useEffect(() => {
+    load().catch((err) => {
+      setLoading(false);
+      setError(err.response?.data?.message || "Unable to load payslips.");
+    });
+  }, [selectedMonth, selectedStaffId]);
+
+  useEffect(() => {
+    if (!selectedRecord || !detailsRef.current) return;
+    detailsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selectedRecord]);
+
+  const summaryTotals = useMemo(
+    () =>
+      records.reduce(
+        (acc, item) => {
+          acc.totalNet += Number(item.netSalary || 0);
+          acc.totalGross += Number(item.earnings?.grossEarnings || 0);
+          return acc;
+        },
+        { totalNet: 0, totalGross: 0 }
+      ),
+    [records]
+  );
+
+  const getEmployee = (employeeId) =>
+    staff.find((entry) => String(entry._id || entry.id) === String(employeeId));
+
+  const printRecord = (record) => {
+    const employee = getEmployee(record.employeeId);
+    const html = buildPayslipHtml(record, employee);
     const printWindow = window.open("", "_blank", "width=900,height=720");
     if (!printWindow) return;
-    printWindow.document.write(buildPayslipHtml(payslip));
+    printWindow.document.write(html);
     printWindow.document.close();
     printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 250);
+    setTimeout(() => printWindow.print(), 250);
   };
 
-  const handleMarkPaid = async (payslipId) => {
-    if (!payslipId) return;
-    setActionLoadingId(payslipId);
+  const markPaid = async (id) => {
+    setActionLoadingId(id);
     try {
-      const { data } = await api.put(`/payslips/${payslipId}/mark-paid`);
-      setPayslips((prev) =>
-        prev.map((item) => (item._id === payslipId ? data : item))
-      );
-      setSelectedPayslip((prev) => (prev?._id === payslipId ? data : prev));
-    } catch (error) {
-      setError(
-        error.response?.data?.message || "Unable to mark payslip as paid."
-      );
+      await api.put(`/payroll/${id}/mark-paid`, {
+        paymentDate: new Date().toISOString(),
+        paymentMethod: "cash",
+      });
+      await load();
+      if (selectedRecord?._id === id) {
+        const fresh = records.find((row) => row._id === id);
+        setSelectedRecord(fresh || null);
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to mark paid.");
     } finally {
       setActionLoadingId("");
     }
@@ -291,126 +176,105 @@ function Payslips() {
       <div className="payslips-header">
         <div>
           <PageHeader title="Payslips" />
-          <p className="payslips-subtitle">
-            Official, locked salary slips for each staff member.
-          </p>
+          <p className="payslips-subtitle">Payroll-backed payslip register.</p>
         </div>
       </div>
-
       {error ? <p className="payslips-error">{error}</p> : null}
 
       <section className="payslips-card">
         <div className="payslips-card__head">
           <h2>Filters</h2>
-          <p>Review payslips by month and staff member.</p>
         </div>
         <div className="payslips-filters">
           <div className="payslips-filters__fields">
             <div className="payslips-field">
-              <label htmlFor="payslip-month">Month</label>
-              <input
-                id="payslip-month"
-                type="month"
-                value={selectedMonth}
-                onChange={(event) => setSelectedMonth(event.target.value)}
-              />
+              <label>Month</label>
+              <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
             </div>
             <div className="payslips-field">
-              <label htmlFor="payslip-staff">Staff</label>
-              <select
-                id="payslip-staff"
-                value={selectedStaffId}
-                onChange={(event) => setSelectedStaffId(event.target.value)}
-              >
-                <option value="">All staff</option>
-                {staff.map((member) => (
-                  <option key={member._id || member.id} value={member._id || member.id}>
-                    {member.fullName} - {member.roleName || "Role"}
+              <label>Employee</label>
+              <select value={selectedStaffId} onChange={(e) => setSelectedStaffId(e.target.value)}>
+                <option value="">All</option>
+                {staff.map((entry) => (
+                  <option key={entry._id || entry.id} value={entry._id || entry.id}>
+                    {entry.fullName}
                   </option>
                 ))}
               </select>
             </div>
           </div>
-          {showSummary ? (
-            <div className="payslips-summary">
-              <h3>Monthly Payroll Summary</h3>
-              <div className="payslips-summary__row">
-                <span title="Total salary before deductions">Total Gross</span>
-                <strong>{formatMoney(summaryTotals.totalGross)}</strong>
-              </div>
-              <div className="payslips-summary__row">
-                <span title="Total salary payable after deductions">Total Net</span>
-                <strong>{formatMoney(summaryTotals.totalNet)}</strong>
-              </div>
+          <div className="payslips-summary">
+            <h3>Summary</h3>
+            <div className="payslips-summary__row">
+              <span>Total Gross</span>
+              <strong>{formatMoney(summaryTotals.totalGross)}</strong>
             </div>
-          ) : null}
+            <div className="payslips-summary__row">
+              <span>Total Net</span>
+              <strong>{formatMoney(summaryTotals.totalNet)}</strong>
+            </div>
+          </div>
         </div>
       </section>
 
       <section className="payslips-card">
         <div className="payslips-card__head">
           <h2>Payslip Register</h2>
-          <p>{loading ? "Loading payslips..." : `${payslips.length} payslips`}</p>
+          <p>{loading ? "Loading..." : `${records.length} records`}</p>
         </div>
         {loading ? (
-          <p className="payslips-muted">Loading payslips...</p>
-        ) : payslips.length === 0 ? (
-          <p className="payslips-muted">No payslips found for this period.</p>
+          <p className="payslips-muted">Loading...</p>
+        ) : records.length === 0 ? (
+          <p className="payslips-muted">No payroll records.</p>
         ) : (
           <div className="payslips-table-wrapper">
             <table className="payslips-table">
               <thead>
                 <tr>
-                  <th>Staff</th>
-                  <th>Role</th>
+                  <th>Employee</th>
                   <th>Period</th>
-                  <th>Net Salary</th>
+                  <th>Net</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {payslips.map((item) => (
+                {records.map((record) => (
                   <tr
-                    key={item._id}
-                    className={
-                      selectedPayslip?._id === item._id
-                        ? "payslip-row--active"
-                        : ""
-                    }
+                    key={record._id}
+                    className={selectedRecord?._id === record._id ? "payslip-row--active" : ""}
                   >
-                    <td>{item.staffSnapshot?.name || "Staff"}</td>
-                    <td>{item.staffSnapshot?.roleName || "Role"}</td>
-                    <td>{formatMonthLabel(item.month, item.year)}</td>
-                    <td>{formatMoney(item.netSalary)}</td>
+                    <td>{record.employeeName}</td>
+                    <td>{formatMonthLabel(record.month)}</td>
+                    <td>{formatMoney(record.netSalary)}</td>
                     <td>
                       <span
                         className={
-                          item.status === "PAID"
+                          record.status === "paid"
                             ? "status-badge status-badge--paid"
                             : "status-badge status-badge--unpaid"
                         }
                       >
-                        {item.status || "UNPAID"}
+                        {String(record.status || "draft").toUpperCase()}
                       </span>
                     </td>
                     <td>
                       <div className="payslip-actions">
-                        <button type="button" onClick={() => handleView(item)}>
+                        <button type="button" onClick={() => setSelectedRecord((prev) => (prev?._id === record._id ? null : record))}>
                           View
                         </button>
-                        <button type="button" onClick={() => handlePrint(item)}>
+                        <button type="button" onClick={() => printRecord(record)}>
                           Print
                         </button>
-                        <button type="button" onClick={() => handlePrint(item)}>
+                        <button type="button" onClick={() => printRecord(record)}>
                           Download PDF
                         </button>
-                        {item.status !== "PAID" ? (
+                        {record.status !== "paid" ? (
                           <button
                             type="button"
                             className="payslip-action-paid"
-                            onClick={() => handleMarkPaid(item._id)}
-                            disabled={actionLoadingId === item._id}
+                            disabled={actionLoadingId === record._id}
+                            onClick={() => markPaid(record._id)}
                           >
                             Mark Paid
                           </button>
@@ -425,120 +289,34 @@ function Payslips() {
         )}
       </section>
 
-      {selectedPayslip ? (
+      {selectedRecord ? (
         <section className="payslips-card" ref={detailsRef}>
           <div className="payslips-card__head">
             <h2>Payslip Details</h2>
-            <p>Review the full salary breakdown before printing.</p>
           </div>
           <div className="payslip-detail">
             <div>
-              <p className="payslip-label">Staff</p>
-              <h3>{selectedPayslip.staffSnapshot?.name}</h3>
-              <p className="payslip-subtext">
-                {selectedPayslip.staffSnapshot?.roleName} - {formatMonthLabel(
-                  selectedPayslip.month,
-                  selectedPayslip.year
-                )}
-              </p>
+              <p className="payslip-label">Employee</p>
+              <h3>{selectedRecord.employeeName}</h3>
+              <p className="payslip-subtext">{formatMonthLabel(selectedRecord.month)}</p>
             </div>
             <div className="payslip-meta">
               <div>
-                <span>Gross Salary</span>
-                <strong>{formatMoney(selectedPayslip.grossSalary)}</strong>
+                <span>Gross</span>
+                <strong>{formatMoney(selectedRecord.earnings?.grossEarnings)}</strong>
               </div>
               <div>
-                <span>Net Salary</span>
-                <strong className="payslip-net">
-                  {formatMoney(selectedPayslip.netSalary)}
-                </strong>
+                <span>Net</span>
+                <strong className="payslip-net">{formatMoney(selectedRecord.netSalary)}</strong>
               </div>
             </div>
           </div>
           <div className="payslip-meta payslip-meta--details">
-            <div>
-              <span>Working Days</span>
-              <strong>{selectedPayslip.workingDays || 0}</strong>
-            </div>
-            <div>
-              <span>Present Days</span>
-              <strong>{selectedPayslip.presentDays || 0}</strong>
-            </div>
-            <div>
-              <span>Half Days</span>
-              <strong>{selectedPayslip.halfDays || 0}</strong>
-            </div>
-            <div>
-              <span>Leave Days</span>
-              <strong>{selectedPayslip.approvedLeaveDays || 0}</strong>
-            </div>
-            <div>
-              <span>Per Day Rate</span>
-              <strong>{formatMoney(selectedPayslip.perDayRate)}</strong>
-            </div>
-            <div>
-              <span>LOP Days</span>
-              <strong>{selectedPayslip.lopDays || 0}</strong>
-            </div>
-            <div>
-              <span>LOP Amount</span>
-              <strong>{formatMoney(selectedPayslip.lopAmount)}</strong>
-            </div>
-            <div>
-              <span>Completed Jobs</span>
-              <strong>{selectedPayslip.completedJobs || 0}</strong>
-            </div>
-          </div>
-          <div className="payslip-breakdown">
-            <div>
-              <h4>Earnings</h4>
-              <ul>
-                <li>
-                  <span>Gross Earnings</span>
-                  <strong>{formatMoney(selectedPayslip.grossSalary)}</strong>
-                </li>
-                <li>
-                  <span>Bonus</span>
-                  <strong>{formatMoney(selectedPayslip.adjustments?.bonus)}</strong>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h4>Deductions</h4>
-              <ul>
-                <li>
-                  <span>LOP Amount</span>
-                  <strong>{formatMoney(selectedPayslip.lopAmount)}</strong>
-                </li>
-                <li>
-                  <span>Advance</span>
-                  <strong>
-                    {formatMoney(
-                      selectedPayslip.adjustments?.advance ??
-                        selectedPayslip.deductions?.advance
-                    )}
-                  </strong>
-                </li>
-                <li>
-                  <span>Penalties</span>
-                  <strong>
-                    {formatMoney(
-                      selectedPayslip.adjustments?.penalties ??
-                        selectedPayslip.deductions?.penalties
-                    )}
-                  </strong>
-                </li>
-                <li>
-                  <span>Other</span>
-                  <strong>
-                    {formatMoney(
-                      selectedPayslip.adjustments?.other ??
-                        selectedPayslip.deductions?.other
-                    )}
-                  </strong>
-                </li>
-              </ul>
-            </div>
+            <div><span>Working Days</span><strong>{selectedRecord.attendanceSummary?.workingDays || 0}</strong></div>
+            <div><span>Present</span><strong>{selectedRecord.attendanceSummary?.presentDays || 0}</strong></div>
+            <div><span>Absent</span><strong>{selectedRecord.attendanceSummary?.absentDays || 0}</strong></div>
+            <div><span>Leave</span><strong>{selectedRecord.attendanceSummary?.leaveDays || 0}</strong></div>
+            <div><span>LOP</span><strong>{selectedRecord.attendanceSummary?.lopDays || 0}</strong></div>
           </div>
         </section>
       ) : null}

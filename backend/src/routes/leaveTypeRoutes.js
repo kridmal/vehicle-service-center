@@ -4,12 +4,14 @@ import {
   createLeaveType,
   deleteLeaveType,
   listLeaveTypes,
+  seedLeaveTypes,
   updateLeaveType,
 } from "../controllers/leaveTypeController.js";
 
 const router = express.Router();
 
 router.get("/", requireAuth, requireOwner, listLeaveTypes);
+router.post("/seed", requireAuth, requireOwner, seedLeaveTypes);
 router.post("/", requireAuth, requireOwner, createLeaveType);
 router.put("/:id", requireAuth, requireOwner, updateLeaveType);
 router.delete("/:id", requireAuth, requireOwner, deleteLeaveType);

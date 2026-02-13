@@ -8,7 +8,11 @@ import DashboardPage from "./pages/dashboard/DashboardPage.jsx";
 import JobCards from "./pages/JobCards.jsx";
 import JobCardNew from "./pages/JobCardNew.jsx";
 import Login from "./pages/Login.jsx";
+import Leave from "./pages/Leave.jsx";
+import LoyaltySettings from "./pages/LoyaltySettings.jsx";
 import ReportsPage from "./pages/reports/ReportsPage.jsx";
+import Roles from "./pages/Roles.jsx";
+import Settings from "./pages/Settings.jsx";
 import Services from "./pages/Services.jsx";
 import Unauthorized from "./pages/Unauthorized.jsx";
 import Vehicles from "./pages/Vehicles.jsx";
@@ -44,8 +48,12 @@ function App() {
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/staff" element={<Staff />} />
             <Route path="/attendance" element={<Attendance />} />
+            <Route path="/leave" element={<Leave />} />
             <Route path="/payroll" element={<Payroll />} />
             <Route path="/payslips" element={<Payslips />} />
+            <Route path="/loyalty" element={<LoyaltySettings />} />
+            <Route path="/roles" element={<Roles />} />
+            <Route path="/settings" element={<Settings />} />
             <Route
               path="/vehicles/configuration"
               element={<VehicleConfiguration />}

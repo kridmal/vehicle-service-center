@@ -1,5 +1,8 @@
 import Invoice from "../models/Invoice.js";
 import JobCard from "../models/JobCard.js";
+import Attendance from "../models/Attendance.js";
+import LeaveRequest from "../models/LeaveRequest.js";
+import Payroll from "../models/Payroll.js";
 
 const startOfDay = (date) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
@@ -17,6 +20,8 @@ export const getDashboardSummary = async (req, res, next) => {
     const now = new Date();
     const todayStart = startOfDay(now);
     const weekStart = startOfWeek(now);
+    const todayDate = now.toISOString().slice(0, 10);
+    const month = now.toISOString().slice(0, 7);
 
     const [
       revenueTodayAgg,
@@ -25,6 +30,9 @@ export const getDashboardSummary = async (req, res, next) => {
       activeJobCards,
       invoiceStatusAgg,
       jobStatusAgg,
+      todayAttendanceAgg,
+      pendingLeaveCount,
+      payrollMonthStatus,
     ] = await Promise.all([
         Invoice.aggregate([
           {
@@ -72,6 +80,20 @@ export const getDashboardSummary = async (req, res, next) => {
             },
           },
         ]),
+        Attendance.aggregate([
+          { $match: { date: todayDate } },
+          {
+            $group: {
+              _id: "$status",
+              count: { $sum: 1 },
+            },
+          },
+        ]),
+        LeaveRequest.countDocuments({ status: "PENDING" }),
+        Payroll.aggregate([
+          { $match: { month } },
+          { $group: { _id: "$status", count: { $sum: 1 } } },
+        ]),
       ]);
 
     const invoiceStatusCounts = invoiceStatusAgg.reduce(
@@ -92,6 +114,19 @@ export const getDashboardSummary = async (req, res, next) => {
       { OPEN: 0, IN_PROGRESS: 0, COMPLETED: 0 }
     );
 
+    const todayAttendance = todayAttendanceAgg.reduce(
+      (acc, row) => {
+        acc[row._id || "unknown"] = row.count || 0;
+        return acc;
+      },
+      { present: 0, absent: 0, "half-day": 0, late: 0, "on-leave": 0 }
+    );
+
+    const payrollStatus = payrollMonthStatus.reduce((acc, row) => {
+      acc[row._id || "draft"] = row.count || 0;
+      return acc;
+    }, {});
+
     return res.json({
       revenueToday: revenueTodayAgg[0]?.total || 0,
       revenueThisWeek: revenueWeekAgg[0]?.total || 0,
@@ -99,6 +134,9 @@ export const getDashboardSummary = async (req, res, next) => {
       activeJobCards,
       invoiceStatusCounts,
       jobCardStatusCounts,
+      todayAttendance,
+      pendingLeaveRequests: pendingLeaveCount,
+      payrollCurrentMonthStatus: payrollStatus,
     });
   } catch (error) {
     return next(error);

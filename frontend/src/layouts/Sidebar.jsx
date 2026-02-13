@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 
-function Sidebar({ isOwner }) {
+function Sidebar({ isOwner, permissions = {} }) {
+  const can = (permission) => isOwner || Boolean(permissions?.[permission]);
   return (
     <aside className="app-sidebar">
       <div className="sidebar__brand">
@@ -11,7 +12,7 @@ function Sidebar({ isOwner }) {
         </div>
       </div>
       <nav className="sidebar__nav">
-        {isOwner ? (
+        {can("viewDashboard") ? (
           <NavLink
             to="/dashboard"
             className={({ isActive }) =>
@@ -71,6 +72,16 @@ function Sidebar({ isOwner }) {
         </NavLink>
         {isOwner ? (
           <NavLink
+            to="/loyalty"
+            className={({ isActive }) =>
+              `sidebar-link${isActive ? " active" : ""}`
+            }
+          >
+            Loyalty Program
+          </NavLink>
+        ) : null}
+        {can("manageInventory") ? (
+          <NavLink
             to="/inventory"
             className={({ isActive }) =>
               `sidebar-link${isActive ? " active" : ""}`
@@ -79,7 +90,7 @@ function Sidebar({ isOwner }) {
             Inventory
           </NavLink>
         ) : null}
-        {isOwner ? (
+        {can("manageEmployees") ? (
           <NavLink
             to="/staff"
             className={({ isActive }) =>
@@ -89,7 +100,7 @@ function Sidebar({ isOwner }) {
             Staff
           </NavLink>
         ) : null}
-        {isOwner ? (
+        {can("markAttendance") ? (
           <NavLink
             to="/attendance"
             className={({ isActive }) =>
@@ -99,7 +110,7 @@ function Sidebar({ isOwner }) {
             Attendance
           </NavLink>
         ) : null}
-        {isOwner ? (
+        {can("runPayroll") ? (
           <NavLink
             to="/payroll"
             className={({ isActive }) =>
@@ -109,7 +120,7 @@ function Sidebar({ isOwner }) {
             Payroll
           </NavLink>
         ) : null}
-        {isOwner ? (
+        {can("runPayroll") ? (
           <NavLink
             to="/payslips"
             className={({ isActive }) =>
@@ -119,7 +130,37 @@ function Sidebar({ isOwner }) {
             Payslips
           </NavLink>
         ) : null}
-        {isOwner ? (
+        {can("approveLeave") ? (
+          <NavLink
+            to="/leave"
+            className={({ isActive }) =>
+              `sidebar-link${isActive ? " active" : ""}`
+            }
+          >
+            Leave
+          </NavLink>
+        ) : null}
+        {can("manageRoles") ? (
+          <NavLink
+            to="/roles"
+            className={({ isActive }) =>
+              `sidebar-link${isActive ? " active" : ""}`
+            }
+          >
+            Roles & Setup
+          </NavLink>
+        ) : null}
+        {can("manageSalaryConfig") ? (
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              `sidebar-link${isActive ? " active" : ""}`
+            }
+          >
+            Settings
+          </NavLink>
+        ) : null}
+        {can("viewReports") ? (
           <NavLink
             to="/reports"
             className={({ isActive }) =>

@@ -1,4 +1,5 @@
 import User from "../models/User.js";
+import Role from "../models/Role.js";
 import { signToken } from "../utils/jwt.js";
 
 export const register = async (req, res, next) => {
@@ -56,5 +57,31 @@ export const login = async (req, res, next) => {
 };
 
 export const me = async (req, res) => {
-  return res.json({ user: req.user });
+  let permissions = {};
+  const user = await User.findById(req.user.id).select("role roleId permissions");
+  if (user?.role === "OWNER") {
+    permissions = {
+      viewDashboard: true,
+      manageInventory: true,
+      manageJobCards: true,
+      manageCustomers: true,
+      manageInvoices: true,
+      manageVehicles: true,
+      manageServices: true,
+      manageEmployees: true,
+      markAttendance: true,
+      runPayroll: true,
+      viewReports: true,
+      manageRoles: true,
+      manageSalaryConfig: true,
+      approvePayroll: true,
+      approveLeave: true,
+    };
+  } else if (user?.roleId) {
+    const role = await Role.findById(user.roleId);
+    permissions = role?.permissions || {};
+  } else {
+    permissions = user?.permissions || {};
+  }
+  return res.json({ user: { ...req.user, roleId: user?.roleId || null, permissions } });
 };

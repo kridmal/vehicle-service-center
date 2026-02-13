@@ -15,7 +15,7 @@ function DashboardLayout({ children }) {
 
   return (
     <div className="app-shell">
-      <Sidebar isOwner={isOwner} />
+      <Sidebar isOwner={isOwner} permissions={user?.permissions || {}} />
       <div className="app-main">
         <header className="app-topbar">
           <div className="topbar__title">

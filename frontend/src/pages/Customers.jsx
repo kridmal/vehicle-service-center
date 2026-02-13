@@ -1,21 +1,33 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PageHeader from "../components/PageHeader.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
-import { createId } from "../utils/id.js";
+import api from "../services/api.js";
 import "./Customers.css";
 
 function Customers() {
   const { user } = useAuth();
-  const [customers, setCustomers] = useLocalStorageState("ksc_customers", []);
-  const [jobCards] = useLocalStorageState("ksc_job_cards", []);
+  const [customers, setCustomers] = useState([]);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [editingId, setEditingId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState("");
   const isRootAdmin = user?.role === "OWNER";
+
+  const loadCustomers = async () => {
+    try {
+      const { data } = await api.get("/customers");
+      setCustomers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to load customers.");
+    }
+  };
+
+  useEffect(() => {
+    loadCustomers();
+  }, []);
 
   const formatCurrency = (value) => {
     const amount = Number(value) || 0;
@@ -25,33 +37,6 @@ function Customers() {
       maximumFractionDigits: 2,
     }).format(amount);
   };
-
-  const customerMetrics = useMemo(() => {
-    const metrics = new Map();
-    jobCards.forEach((job) => {
-      if (!job) return;
-      const ownerId = job.ownerId || job.customerId;
-      if (!ownerId) return;
-      const status = job.status || "OPEN";
-      if (!["COMPLETED", "CLOSED"].includes(status)) return;
-      const partsTotal = (job.partsUsed || []).reduce((sum, part) => {
-        const qty = Number(part.quantity) || 0;
-        const unit = Number(part.unitPrice) || 0;
-        return sum + qty * unit;
-      }, 0);
-      const labor = Number(job.laborCharges) || 0;
-      const total = partsTotal + labor;
-      const current = metrics.get(ownerId) || {
-        completedVisits: 0,
-        lifetimeValue: 0,
-      };
-      metrics.set(ownerId, {
-        completedVisits: current.completedVisits + 1,
-        lifetimeValue: current.lifetimeValue + total,
-      });
-    });
-    return metrics;
-  }, [jobCards]);
 
   const filteredCustomers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -63,60 +48,62 @@ function Customers() {
     });
   }, [customers, searchQuery]);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     if (!isRootAdmin) return;
-    if (editingId) {
-      setCustomers((prev) =>
-        prev.map((customer) =>
-          customer.id === editingId
-            ? {
-                ...customer,
-                name: name.trim(),
-                phone: phone.trim(),
-                email: email.trim(),
-                notes: notes.trim(),
-              }
-            : customer
-        )
-      );
-      setEditingId("");
-    } else {
-      const newCustomer = {
-        id: createId("cust"),
-        name: name.trim(),
-        phone: phone.trim(),
-        email: email.trim(),
-        notes: notes.trim(),
-        createdAt: new Date().toISOString(),
-      };
-      setCustomers((prev) => [newCustomer, ...prev]);
+    setError("");
+    try {
+      if (editingId) {
+        await api.patch(`/customers/${editingId}`, {
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
+          notes: notes.trim(),
+        });
+        setEditingId("");
+      } else {
+        await api.post("/customers", {
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
+          notes: notes.trim(),
+        });
+      }
+      setName("");
+      setPhone("");
+      setEmail("");
+      setNotes("");
+      await loadCustomers();
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to save customer.");
     }
-    setName("");
-    setPhone("");
-    setEmail("");
-    setNotes("");
   };
 
   const handleEdit = (customer) => {
     if (!isRootAdmin) return;
-    setEditingId(customer.id);
+    setEditingId(customer._id);
     setName(customer.name || "");
     setPhone(customer.phone || "");
     setEmail(customer.email || "");
     setNotes(customer.notes || "");
   };
 
-  const handleDelete = (customerId) => {
+  const handleDelete = async (customerId) => {
     if (!isRootAdmin) return;
     if (!window.confirm("Delete this customer?")) return;
-    setCustomers((prev) => prev.filter((customer) => customer.id !== customerId));
-    if (editingId === customerId) {
-      setEditingId("");
-      setName("");
-      setPhone("");
-      setEmail("");
-      setNotes("");
+    setError("");
+    try {
+      await api.delete(`/customers/${customerId}`);
+      if (editingId === customerId) {
+        setEditingId("");
+        setName("");
+        setPhone("");
+        setEmail("");
+        setNotes("");
+      }
+      await loadCustomers();
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to delete customer.");
     }
   };
 
@@ -221,6 +208,7 @@ function Customers() {
               placeholder="Search by name or mobile number"
             />
           </div>
+          {error ? <p className="empty-state" style={{ color: "#dc2626" }}>{error}</p> : null}
           {customers.length === 0 ? (
             <p className="empty-state">No customers yet.</p>
           ) : (
@@ -233,19 +221,18 @@ function Customers() {
                     <th>Mobile Number</th>
                     <th>Lifetime Value</th>
                     <th>Completed Visits</th>
+                    <th>Loyalty Rewards</th>
                     <th>Additional Info</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredCustomers.map((customer) => {
-                    const metrics =
-                      customerMetrics.get(customer.id) || {};
                     const joinDate = customer.createdAt
                       ? new Date(customer.createdAt).toLocaleDateString()
                       : "-";
                     return (
-                      <tr key={customer.id}>
+                      <tr key={customer._id}>
                         <td>{joinDate}</td>
                         <td>
                           <div className="customer-name">
@@ -254,8 +241,13 @@ function Customers() {
                           <div className="customer-meta">{customer.email}</div>
                         </td>
                         <td className="customer-phone">{customer.phone}</td>
-                        <td>{formatCurrency(metrics.lifetimeValue || 0)}</td>
-                        <td>{metrics.completedVisits || 0}</td>
+                        <td>{formatCurrency(customer.lifetimeValue || 0)}</td>
+                        <td>{customer.completedVisits || 0}</td>
+                        <td>
+                          {customer.availableRewardsCount > 0
+                            ? `${customer.availableRewardsCount} available`
+                            : "-"}
+                        </td>
                         <td>{customer.notes || "-"}</td>
                         <td className="customers-actions">
                           <button
@@ -274,7 +266,7 @@ function Customers() {
                           <button
                             type="button"
                             className="customers-action customers-action--danger"
-                            onClick={() => handleDelete(customer.id)}
+                            onClick={() => handleDelete(customer._id)}
                             disabled={!isRootAdmin}
                             title={
                               isRootAdmin
