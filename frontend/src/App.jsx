@@ -12,6 +12,8 @@ import Leave from "./pages/Leave.jsx";
 import LoyaltySettings from "./pages/LoyaltySettings.jsx";
 import ReportsPage from "./pages/reports/ReportsPage.jsx";
 import Roles from "./pages/Roles.jsx";
+import SalesInvoiceView from "./pages/sales/SalesInvoiceView.jsx";
+import SalesPage from "./pages/sales/SalesPage.jsx";
 import Settings from "./pages/Settings.jsx";
 import Services from "./pages/Services.jsx";
 import Unauthorized from "./pages/Unauthorized.jsx";
@@ -27,6 +29,9 @@ import Attendance from "./pages/Attendance.jsx";
 import Payroll from "./pages/Payroll.jsx";
 import Payslips from "./pages/Payslips.jsx";
 import VehicleConfiguration from "./pages/vehicles/VehicleConfiguration.jsx";
+import PurchasesList from "./pages/purchases/PurchasesList.jsx";
+import PurchaseCreate from "./pages/purchases/PurchaseCreate.jsx";
+import PurchaseDetail from "./pages/purchases/PurchaseDetail.jsx";
 
 function App() {
   const { isAuthenticated } = useAuth();
@@ -51,6 +56,11 @@ function App() {
             <Route path="/leave" element={<Leave />} />
             <Route path="/payroll" element={<Payroll />} />
             <Route path="/payslips" element={<Payslips />} />
+            <Route path="/sales" element={<SalesPage />} />
+            <Route path="/sales/:id/invoice" element={<SalesInvoiceView />} />
+            <Route path="/purchases" element={<PurchasesList />} />
+            <Route path="/purchases/new" element={<PurchaseCreate />} />
+            <Route path="/purchases/:id" element={<PurchaseDetail />} />
             <Route path="/loyalty" element={<LoyaltySettings />} />
             <Route path="/roles" element={<Roles />} />
             <Route path="/settings" element={<Settings />} />

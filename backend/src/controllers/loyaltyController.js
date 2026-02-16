@@ -3,8 +3,220 @@ import LoyaltyRule from "../models/LoyaltyRule.js";
 import CustomerLoyalty from "../models/CustomerLoyalty.js";
 import JobCard from "../models/JobCard.js";
 import Invoice from "../models/Invoice.js";
+import {
+  buildSuppressionKey,
+  computeVisitMilestone,
+  parseServiceTypeIds,
+  ruleAppliesToSelectedServices,
+} from "../utils/loyaltyMilestone.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
+const LOYALTY_BASE_FILTER = { vehicleId: null, serviceTypeId: null };
+
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const hasValue = (value) =>
+  value !== undefined && value !== null && String(value).trim() !== "";
+
+const normalizeTriggerType = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+const normalizeRewardType = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+const normalizeDiscountMode = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase();
+  if (["PERCENT", "AMOUNT", "FULL"].includes(normalized)) {
+    return normalized;
+  }
+  return null;
+};
+
+const normalizeOptionalAmount = (value) => {
+  if (!hasValue(value)) {
+    return null;
+  }
+  const parsed = toNumber(value);
+  return parsed === null ? null : parsed;
+};
+
+const toBoolean = (value, fallback) => {
+  if (value === undefined) return fallback;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return Boolean(value);
+};
+
+const buildRuleRewardFields = (input = {}) => {
+  const rewardType = normalizeRewardType(input.rewardType);
+  const rewardValueRaw = toNumber(input.rewardValue);
+
+  if (rewardType === "free_labor") {
+    const rewardDiscountMode = normalizeDiscountMode(input.rewardDiscountMode) || "AMOUNT";
+    const resolvedDiscountValueRaw =
+      rewardDiscountMode === "FULL"
+        ? 0
+        : hasValue(input.rewardDiscountValue)
+          ? toNumber(input.rewardDiscountValue)
+          : rewardValueRaw;
+
+    if (resolvedDiscountValueRaw === null || resolvedDiscountValueRaw < 0) {
+      return {
+        error:
+          rewardDiscountMode === "PERCENT"
+            ? "Discount percent must be a number between 0 and 100"
+            : "Discount amount must be a number greater than or equal to 0",
+      };
+    }
+
+    if (
+      rewardDiscountMode === "PERCENT" &&
+      (resolvedDiscountValueRaw < 0 || resolvedDiscountValueRaw > 100)
+    ) {
+      return {
+        error: "Discount percent must be a number between 0 and 100",
+      };
+    }
+
+    const rewardDiscountCap = normalizeOptionalAmount(input.rewardDiscountCap);
+    if (hasValue(input.rewardDiscountCap) && rewardDiscountCap === null) {
+      return { error: "Discount cap must be a number greater than or equal to 0" };
+    }
+    if (rewardDiscountCap !== null && rewardDiscountCap < 0) {
+      return { error: "Discount cap must be a number greater than or equal to 0" };
+    }
+
+    return {
+      rewardValue: resolvedDiscountValueRaw,
+      rewardDiscountMode,
+      rewardDiscountValue: resolvedDiscountValueRaw,
+      rewardDiscountCap,
+    };
+  }
+
+  if (rewardValueRaw === null || rewardValueRaw < 0) {
+    return {
+      error: "Reward value must be a number greater than or equal to 0",
+    };
+  }
+
+  return {
+    rewardValue: rewardValueRaw,
+    rewardDiscountMode: null,
+    rewardDiscountValue: null,
+    rewardDiscountCap: null,
+  };
+};
+
+const buildRulePayload = (input = {}, defaults = {}) => {
+  const name = String(input.name || "").trim();
+  const triggerType = normalizeTriggerType(input.triggerType);
+  const rewardType = normalizeRewardType(input.rewardType);
+  const triggerValue = toNumber(input.triggerValue);
+
+  if (!name) {
+    return { error: "Rule name is required" };
+  }
+  if (!triggerType) {
+    return { error: "Trigger type is required" };
+  }
+  if (!rewardType) {
+    return { error: "Reward type is required" };
+  }
+  if (triggerValue === null || triggerValue < 1) {
+    return {
+      error: "Trigger value must be a number greater than or equal to 1",
+    };
+  }
+
+  const rewardFields = buildRuleRewardFields({
+    ...input,
+    rewardType,
+  });
+  if (rewardFields.error) {
+    return rewardFields;
+  }
+
+  return {
+    payload: {
+      name,
+      description: hasValue(input.description) ? String(input.description).trim() : "",
+      serviceTypeId: hasValue(input.serviceTypeId) ? input.serviceTypeId : null,
+      triggerType,
+      triggerValue,
+      rewardType,
+      rewardValue: rewardFields.rewardValue,
+      rewardDiscountMode: rewardFields.rewardDiscountMode,
+      rewardDiscountValue: rewardFields.rewardDiscountValue,
+      rewardDiscountCap: rewardFields.rewardDiscountCap,
+      rewardServiceTypeId: hasValue(input.rewardServiceTypeId)
+        ? input.rewardServiceTypeId
+        : null,
+      isActive: toBoolean(input.isActive, defaults.isActive ?? true),
+    },
+  };
+};
+
+const appendRewardDiscountFields = (source = {}) => ({
+  rewardDiscountMode: normalizeDiscountMode(source.rewardDiscountMode),
+  rewardDiscountValue: hasValue(source.rewardDiscountValue)
+    ? toNumber(source.rewardDiscountValue)
+    : null,
+  rewardDiscountCap: hasValue(source.rewardDiscountCap)
+    ? toNumber(source.rewardDiscountCap)
+    : null,
+});
+
+const getOrCreateBaseCustomerLoyalty = async (customerId) => {
+  let loyalty = await CustomerLoyalty.findOne({
+    customerId,
+    ...LOYALTY_BASE_FILTER,
+  });
+
+  if (!loyalty) {
+    loyalty = await CustomerLoyalty.create({
+      customerId,
+      ...LOYALTY_BASE_FILTER,
+      firstVisitDate: new Date(),
+    });
+  }
+
+  return loyalty;
+};
+
+const toMilestoneNumber = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.floor(parsed);
+};
+
+const normalizeRewardPayload = (rule, milestoneNumber) => ({
+  ruleId: rule._id,
+  ruleName: rule.name,
+  rewardType: rule.rewardType,
+  rewardValue: rule.rewardValue,
+  ...appendRewardDiscountFields(rule),
+  rewardServiceTypeId: rule.rewardServiceTypeId || null,
+  earnedAt: new Date(),
+  earnedDate: new Date(),
+  milestoneNumber,
+});
 
 // ============ LOYALTY RULES ============
 
@@ -27,35 +239,12 @@ export const listLoyaltyRules = async (req, res, next) => {
 
 export const createLoyaltyRule = async (req, res, next) => {
   try {
-    const {
-      name,
-      description,
-      serviceTypeId,
-      triggerType,
-      triggerValue,
-      rewardType,
-      rewardValue,
-      rewardServiceTypeId,
-      isActive,
-    } = req.body;
-
-    if (!name || !triggerType || !triggerValue || !rewardType || !rewardValue) {
-      return res.status(400).json({
-        message: "Name, trigger type/value, and reward type/value are required",
-      });
+    const normalized = buildRulePayload(req.body, { isActive: true });
+    if (normalized.error) {
+      return res.status(400).json({ message: normalized.error });
     }
 
-    const rule = await LoyaltyRule.create({
-      name,
-      description,
-      serviceTypeId: serviceTypeId || null,
-      triggerType,
-      triggerValue,
-      rewardType,
-      rewardValue,
-      rewardServiceTypeId: rewardServiceTypeId || null,
-      isActive: isActive !== undefined ? isActive : true,
-    });
+    const rule = await LoyaltyRule.create(normalized.payload);
 
     return res.status(201).json(rule);
   } catch (error) {
@@ -70,14 +259,27 @@ export const updateLoyaltyRule = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid loyalty rule ID" });
     }
 
-    const rule = await LoyaltyRule.findByIdAndUpdate(id, req.body, {
+    const existingRule = await LoyaltyRule.findById(id);
+    if (!existingRule) {
+      return res.status(404).json({ message: "Loyalty rule not found" });
+    }
+
+    const mergedInput = {
+      ...existingRule.toObject(),
+      ...req.body,
+    };
+
+    const normalized = buildRulePayload(mergedInput, {
+      isActive: existingRule.isActive !== false,
+    });
+    if (normalized.error) {
+      return res.status(400).json({ message: normalized.error });
+    }
+
+    const rule = await LoyaltyRule.findByIdAndUpdate(id, normalized.payload, {
       new: true,
       runValidators: true,
     });
-
-    if (!rule) {
-      return res.status(404).json({ message: "Loyalty rule not found" });
-    }
 
     return res.json(rule);
   } catch (error) {
@@ -146,6 +348,253 @@ export const getCustomerLoyalty = async (req, res, next) => {
   }
 };
 
+export const previewJobCardRewards = async (req, res, next) => {
+  try {
+    const { customerId } = req.params;
+    const selectedServiceTypeIds = parseServiceTypeIds(req.query.serviceTypeIds);
+
+    if (!isValidId(customerId)) {
+      return res.status(400).json({ message: "Invalid customer ID" });
+    }
+
+    const activeVisitRules = await LoyaltyRule.find({
+      isActive: true,
+      triggerType: "visit_count",
+    })
+      .populate("serviceTypeId", "name")
+      .populate("rewardServiceTypeId", "name");
+
+    if (selectedServiceTypeIds.length === 0 || activeVisitRules.length === 0) {
+      return res.json({
+        shouldShowPopup: false,
+        rewardsAvailable: [],
+        ruleEvaluations: [],
+        suppressionKeys: [],
+      });
+    }
+
+    let loyalty = await getOrCreateBaseCustomerLoyalty(customerId);
+    const customerIdStr = String(customerId);
+    const ruleEvaluations = [];
+    const rewardsAvailable = [];
+
+    for (const rule of activeVisitRules) {
+      const scopedServiceTypeId = rule.serviceTypeId?._id || rule.serviceTypeId || null;
+      const applies = ruleAppliesToSelectedServices(
+        scopedServiceTypeId,
+        selectedServiceTypeIds
+      );
+
+      const evaluation = {
+        ruleId: rule._id,
+        ruleName: rule.name,
+        serviceTypeId: scopedServiceTypeId || null,
+        triggerValue: rule.triggerValue,
+        priorCompletedQualifyingVisits: 0,
+        nextVisitNumber: 1,
+        milestoneInterval: Number(rule.triggerValue) + 1,
+        milestoneNumber: null,
+        qualifies: false,
+        rewardStatus: "not_applicable",
+      };
+
+      if (!applies) {
+        ruleEvaluations.push(evaluation);
+        continue;
+      }
+
+      const countFilter = {
+        $or: [{ customerId: customerIdStr }, { ownerId: customerIdStr }],
+        status: { $in: ["COMPLETED", "CLOSED"] },
+      };
+
+      if (scopedServiceTypeId) {
+        countFilter["services.serviceType"] = String(scopedServiceTypeId);
+      }
+
+      const priorCompletedQualifyingVisits = await JobCard.countDocuments(
+        countFilter
+      );
+      const milestone = computeVisitMilestone(
+        priorCompletedQualifyingVisits,
+        rule.triggerValue
+      );
+
+      evaluation.priorCompletedQualifyingVisits =
+        milestone.priorCompletedQualifyingVisits;
+      evaluation.nextVisitNumber = milestone.nextVisitNumber;
+      evaluation.milestoneInterval = milestone.milestoneInterval;
+      evaluation.milestoneNumber = milestone.milestoneNumber;
+      evaluation.qualifies = milestone.qualifies;
+
+      if (!milestone.qualifies || !milestone.milestoneNumber) {
+        evaluation.rewardStatus = "not_qualified";
+        ruleEvaluations.push(evaluation);
+        continue;
+      }
+
+      const milestoneNumber = milestone.milestoneNumber;
+      const existingAvailable = (loyalty.availableRewards || []).find(
+        (reward) =>
+          String(reward.ruleId) === String(rule._id) &&
+          toMilestoneNumber(reward.milestoneNumber) === milestoneNumber
+      );
+
+      if (existingAvailable) {
+        evaluation.rewardStatus = "existing_available";
+        rewardsAvailable.push({
+          rewardId: existingAvailable._id,
+          ruleId: rule._id,
+          ruleName: existingAvailable.ruleName || rule.name,
+          rewardType: existingAvailable.rewardType || rule.rewardType,
+          rewardValue: existingAvailable.rewardValue ?? rule.rewardValue,
+          ...appendRewardDiscountFields({
+            rewardDiscountMode:
+              existingAvailable.rewardDiscountMode ?? rule.rewardDiscountMode,
+            rewardDiscountValue:
+              existingAvailable.rewardDiscountValue ?? rule.rewardDiscountValue,
+            rewardDiscountCap:
+              existingAvailable.rewardDiscountCap ?? rule.rewardDiscountCap,
+          }),
+          rewardServiceTypeId:
+            existingAvailable.rewardServiceTypeId || rule.rewardServiceTypeId,
+          milestoneNumber,
+          suppressionKey: buildSuppressionKey(rule._id, milestoneNumber),
+        });
+        ruleEvaluations.push(evaluation);
+        continue;
+      }
+
+      const existingRedeemed = (loyalty.redeemedRewards || []).find(
+        (reward) =>
+          String(reward.ruleId) === String(rule._id) &&
+          toMilestoneNumber(reward.milestoneNumber) === milestoneNumber
+      );
+
+      if (existingRedeemed) {
+        evaluation.rewardStatus = "already_redeemed";
+        ruleEvaluations.push(evaluation);
+        continue;
+      }
+
+      const updateFilter = {
+        _id: loyalty._id,
+        availableRewards: {
+          $not: {
+            $elemMatch: { ruleId: rule._id, milestoneNumber },
+          },
+        },
+        redeemedRewards: {
+          $not: {
+            $elemMatch: { ruleId: rule._id, milestoneNumber },
+          },
+        },
+      };
+
+      const updated = await CustomerLoyalty.findOneAndUpdate(
+        updateFilter,
+        {
+          $push: {
+            availableRewards: normalizeRewardPayload(rule, milestoneNumber),
+          },
+        },
+        { new: true }
+      );
+
+      if (updated) {
+        loyalty = updated;
+        const createdReward = loyalty.availableRewards.find(
+          (reward) =>
+            String(reward.ruleId) === String(rule._id) &&
+            toMilestoneNumber(reward.milestoneNumber) === milestoneNumber
+        );
+
+        evaluation.rewardStatus = "created_now";
+        if (createdReward) {
+          rewardsAvailable.push({
+            rewardId: createdReward._id,
+            ruleId: rule._id,
+            ruleName: createdReward.ruleName || rule.name,
+            rewardType: createdReward.rewardType || rule.rewardType,
+            rewardValue: createdReward.rewardValue ?? rule.rewardValue,
+            ...appendRewardDiscountFields({
+              rewardDiscountMode:
+                createdReward.rewardDiscountMode ?? rule.rewardDiscountMode,
+              rewardDiscountValue:
+                createdReward.rewardDiscountValue ?? rule.rewardDiscountValue,
+              rewardDiscountCap:
+                createdReward.rewardDiscountCap ?? rule.rewardDiscountCap,
+            }),
+            rewardServiceTypeId:
+              createdReward.rewardServiceTypeId || rule.rewardServiceTypeId,
+            milestoneNumber,
+            suppressionKey: buildSuppressionKey(rule._id, milestoneNumber),
+          });
+        }
+        ruleEvaluations.push(evaluation);
+        continue;
+      }
+
+      loyalty = await CustomerLoyalty.findById(loyalty._id);
+      const concurrentAvailable = (loyalty?.availableRewards || []).find(
+        (reward) =>
+          String(reward.ruleId) === String(rule._id) &&
+          toMilestoneNumber(reward.milestoneNumber) === milestoneNumber
+      );
+      if (concurrentAvailable) {
+        evaluation.rewardStatus = "existing_available";
+        rewardsAvailable.push({
+          rewardId: concurrentAvailable._id,
+          ruleId: rule._id,
+          ruleName: concurrentAvailable.ruleName || rule.name,
+          rewardType: concurrentAvailable.rewardType || rule.rewardType,
+          rewardValue: concurrentAvailable.rewardValue ?? rule.rewardValue,
+          ...appendRewardDiscountFields({
+            rewardDiscountMode:
+              concurrentAvailable.rewardDiscountMode ?? rule.rewardDiscountMode,
+            rewardDiscountValue:
+              concurrentAvailable.rewardDiscountValue ?? rule.rewardDiscountValue,
+            rewardDiscountCap:
+              concurrentAvailable.rewardDiscountCap ?? rule.rewardDiscountCap,
+          }),
+          rewardServiceTypeId:
+            concurrentAvailable.rewardServiceTypeId || rule.rewardServiceTypeId,
+          milestoneNumber,
+          suppressionKey: buildSuppressionKey(rule._id, milestoneNumber),
+        });
+      } else {
+        const concurrentRedeemed = (loyalty?.redeemedRewards || []).find(
+          (reward) =>
+            String(reward.ruleId) === String(rule._id) &&
+            toMilestoneNumber(reward.milestoneNumber) === milestoneNumber
+        );
+        evaluation.rewardStatus = concurrentRedeemed
+          ? "already_redeemed"
+          : "not_qualified";
+      }
+
+      ruleEvaluations.push(evaluation);
+    }
+
+    const suppressionKeys = [
+      ...new Set(
+        rewardsAvailable
+          .map((reward) => reward.suppressionKey)
+          .filter(Boolean)
+      ),
+    ];
+
+    return res.json({
+      shouldShowPopup: rewardsAvailable.length > 0,
+      rewardsAvailable,
+      ruleEvaluations,
+      suppressionKeys,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const checkEligibleRewards = async (req, res, next) => {
   try {
     const { customerId } = req.params;
@@ -160,7 +609,17 @@ export const checkEligibleRewards = async (req, res, next) => {
     if (vehicleId) filter.vehicleId = vehicleId;
     if (serviceTypeId) filter.serviceTypeId = serviceTypeId;
 
-    const loyalty = await CustomerLoyalty.findOne(filter);
+    let loyalty = await CustomerLoyalty.findOne(filter);
+
+    // Fallback: most loyalty stats are tracked in a customer-level record
+    // (vehicleId/serviceTypeId are null). If a scoped query misses, use that.
+    if (!loyalty && (vehicleId || serviceTypeId)) {
+      loyalty = await CustomerLoyalty.findOne({
+        customerId,
+        vehicleId: null,
+        serviceTypeId: null,
+      });
+    }
 
     if (!loyalty) {
       // No loyalty record yet — return all active rules as in-progress with 0 progress
@@ -191,7 +650,9 @@ export const checkEligibleRewards = async (req, res, next) => {
     // For reusable rules, remove any stale availableRewards.
     // The loop below will re-add them ONLY if the real count confirms eligibility.
     const reusableRuleIds = new Set(
-      activeRules.filter((r) => r.isReusable).map((r) => String(r._id))
+      activeRules
+        .filter((r) => r.isReusable && r.triggerType !== "visit_count")
+        .map((r) => String(r._id))
     );
     const beforeCount = loyalty.availableRewards.length;
     loyalty.availableRewards = loyalty.availableRewards.filter(
@@ -239,6 +700,7 @@ export const checkEligibleRewards = async (req, res, next) => {
           case "visit_count":
             currentProgress = await Invoice.countDocuments(invoiceQuery);
             break;
+          case "spend_amount":
           case "spending_amount": {
             const spendInvoices = await Invoice.find(invoiceQuery).select(
               "totalAmount"
@@ -289,7 +751,10 @@ export const checkEligibleRewards = async (req, res, next) => {
               needsSave = true;
             }
           }
-        } else if (rule.triggerType === "spending_amount") {
+        } else if (
+          rule.triggerType === "spending_amount" ||
+          rule.triggerType === "spend_amount"
+        ) {
           if (loyalty.totalSpent !== currentProgress) {
             loyalty.totalSpent = currentProgress;
             needsSave = true;
@@ -301,6 +766,7 @@ export const checkEligibleRewards = async (req, res, next) => {
           case "visit_count":
             currentProgress = loyalty.visitCount;
             break;
+          case "spend_amount":
           case "spending_amount":
             currentProgress = loyalty.totalSpent;
             break;
@@ -334,7 +800,15 @@ export const checkEligibleRewards = async (req, res, next) => {
           (reward) => String(reward.ruleId) === String(rule._id)
         );
 
-      if (isEligible && !alreadyHasReward && !alreadyRedeemed) {
+      // visit_count rewards are generated by the milestone preview endpoint.
+      const shouldAutoCreateReward = rule.triggerType !== "visit_count";
+
+      if (
+        shouldAutoCreateReward &&
+        isEligible &&
+        !alreadyHasReward &&
+        !alreadyRedeemed
+      ) {
         // Promote eligible reward to availableRewards in DB immediately
         let expiryDate = null;
         if (rule.validityDays) {
@@ -347,6 +821,7 @@ export const checkEligibleRewards = async (req, res, next) => {
           ruleName: rule.name,
           rewardType: rule.rewardType,
           rewardValue: rule.rewardValue,
+          ...appendRewardDiscountFields(rule),
           rewardServiceTypeId: rule.rewardServiceTypeId,
           earnedDate: new Date(),
           expiryDate,
@@ -432,6 +907,9 @@ export const redeemReward = async (req, res, next) => {
       ruleName: reward.ruleName,
       rewardType: reward.rewardType,
       rewardValue: reward.rewardValue,
+      ...appendRewardDiscountFields(reward),
+      milestoneNumber: toMilestoneNumber(reward.milestoneNumber),
+      redeemedAt: new Date(),
       redeemedDate: new Date(),
       jobCardId,
       jobCardNo,
@@ -455,6 +933,7 @@ export const redeemReward = async (req, res, next) => {
             }
           }
           break;
+        case "spend_amount":
         case "spending_amount":
           loyalty.totalSpent = 0;
           break;
@@ -470,6 +949,7 @@ export const redeemReward = async (req, res, next) => {
       reward: {
         rewardType: reward.rewardType,
         rewardValue: reward.rewardValue,
+        ...appendRewardDiscountFields(reward),
       },
     });
   } catch (error) {
@@ -561,6 +1041,7 @@ export const recalculateLoyalty = async (req, res, next) => {
             case "visit_count":
               resetVisitCount = true;
               break;
+            case "spend_amount":
             case "spending_amount":
               resetSpending = true;
               break;
@@ -633,6 +1114,10 @@ export const recalculateLoyalty = async (req, res, next) => {
     const activeRules = await LoyaltyRule.find({ isActive: true });
 
     for (const rule of activeRules) {
+      if (rule.triggerType === "visit_count") {
+        continue;
+      }
+
       let isEligible = false;
 
       const serviceTypeCounts = {};
@@ -644,6 +1129,7 @@ export const recalculateLoyalty = async (req, res, next) => {
         case "visit_count":
           isEligible = loyalty.visitCount >= rule.triggerValue;
           break;
+        case "spend_amount":
         case "spending_amount":
           isEligible = loyalty.totalSpent >= rule.triggerValue;
           break;
@@ -680,6 +1166,7 @@ export const recalculateLoyalty = async (req, res, next) => {
             ruleName: rule.name,
             rewardType: rule.rewardType,
             rewardValue: rule.rewardValue,
+            ...appendRewardDiscountFields(rule),
             rewardServiceTypeId: rule.rewardServiceTypeId,
             earnedDate: new Date(),
             expiryDate: expiryDate,
@@ -731,9 +1218,15 @@ export const expireOldRewards = async () => {
 };
 
 // Helper function to update loyalty stats (called from invoice controller)
-export const updateLoyaltyStats = async (customerId, invoiceAmount, jobCardId) => {
+export const updateLoyaltyStats = async (
+  customerId,
+  invoiceAmount,
+  jobCardId,
+  options = {}
+) => {
   try {
     if (!customerId) return;
+    const { session = null, invoiceId = null } = options;
 
     const customerIdObj = mongoose.Types.ObjectId.isValid(customerId)
       ? customerId
@@ -744,15 +1237,23 @@ export const updateLoyaltyStats = async (customerId, invoiceAmount, jobCardId) =
     // Get job card to extract service information
     let jobCard = null;
     if (jobCardId) {
-      jobCard = await JobCard.findById(jobCardId);
+      const jobCardQuery = JobCard.findById(jobCardId);
+      if (session) {
+        jobCardQuery.session(session);
+      }
+      jobCard = await jobCardQuery;
     }
 
     // Find or create loyalty record
-    let loyalty = await CustomerLoyalty.findOne({
+    const loyaltyQuery = CustomerLoyalty.findOne({
       customerId: customerIdObj,
       vehicleId: null,
       serviceTypeId: null,
     });
+    if (session) {
+      loyaltyQuery.session(session);
+    }
+    let loyalty = await loyaltyQuery;
 
     if (!loyalty) {
       loyalty = new CustomerLoyalty({
@@ -769,12 +1270,70 @@ export const updateLoyaltyStats = async (customerId, invoiceAmount, jobCardId) =
     if (jobCard && jobCard.appliedRewards && jobCard.appliedRewards.length > 0) {
       for (const applied of jobCard.appliedRewards) {
         if (applied.ruleId) {
-          const rule = await LoyaltyRule.findById(applied.ruleId);
+          const appliedMilestone = toMilestoneNumber(applied.milestoneNumber);
+          const appliedRewardId = applied.rewardId
+            ? String(applied.rewardId)
+            : "";
+
+          // Redeem the reward (move from available to redeemed)
+          const availIndex = loyalty.availableRewards.findIndex(
+            (reward) => {
+              if (
+                appliedRewardId &&
+                reward?._id &&
+                String(reward._id) === appliedRewardId
+              ) {
+                return true;
+              }
+
+              if (String(reward.ruleId) !== String(applied.ruleId)) {
+                return false;
+              }
+
+              if (appliedMilestone !== null) {
+                return (
+                  toMilestoneNumber(reward.milestoneNumber) === appliedMilestone
+                );
+              }
+
+              // Legacy fallback for records without milestone metadata.
+              return true;
+            }
+          );
+
+          if (availIndex !== -1) {
+            const reward = loyalty.availableRewards[availIndex];
+            loyalty.availableRewards.splice(availIndex, 1);
+            loyalty.redeemedRewards.push({
+              ruleId: reward.ruleId,
+              ruleName: reward.ruleName,
+              rewardType: reward.rewardType,
+              rewardValue: reward.rewardValue,
+              ...appendRewardDiscountFields(reward),
+              milestoneNumber:
+                appliedMilestone ?? toMilestoneNumber(reward.milestoneNumber),
+              redeemedAt: new Date(),
+              redeemedDate: new Date(),
+              jobCardId: jobCard._id,
+              jobCardNo: jobCard.jobCardNo,
+              invoiceId:
+                invoiceId && mongoose.Types.ObjectId.isValid(invoiceId)
+                  ? invoiceId
+                  : undefined,
+            });
+          }
+
+          const ruleQuery = LoyaltyRule.findById(applied.ruleId);
+          if (session) {
+            ruleQuery.session(session);
+          }
+          const rule = await ruleQuery;
           if (rule && rule.isReusable) {
             switch (rule.triggerType) {
               case "visit_count":
                 skipVisitCount = true;
                 break;
+              case "spend_amount":
               case "spending_amount":
                 skipSpending = true;
                 break;
@@ -827,14 +1386,23 @@ export const updateLoyaltyStats = async (customerId, invoiceAmount, jobCardId) =
       }
     }
 
-    await loyalty.save();
+    await loyalty.save({ session });
 
     // Check for newly eligible rewards (only non-reusable or first-cycle reusable).
     // For reusable rules with redemption history, checkEligibleRewards handles
     // eligibility using invoice-counting to avoid stale-count issues.
-    const activeRules = await LoyaltyRule.find({ isActive: true });
+    const activeRulesQuery = LoyaltyRule.find({ isActive: true });
+    if (session) {
+      activeRulesQuery.session(session);
+    }
+    const activeRules = await activeRulesQuery;
 
     for (const rule of activeRules) {
+      // visit_count rewards are generated at draft time by previewJobCardRewards.
+      if (rule.triggerType === "visit_count") {
+        continue;
+      }
+
       // Skip reusable rules that have been redeemed — their eligibility is
       // determined by checkEligibleRewards using real invoice counts.
       if (
@@ -860,6 +1428,7 @@ export const updateLoyaltyStats = async (customerId, invoiceAmount, jobCardId) =
           currentProgress = loyalty.visitCount;
           isEligible = currentProgress >= rule.triggerValue;
           break;
+        case "spend_amount":
         case "spending_amount":
           currentProgress = loyalty.totalSpent;
           isEligible = currentProgress >= rule.triggerValue;
@@ -901,12 +1470,13 @@ export const updateLoyaltyStats = async (customerId, invoiceAmount, jobCardId) =
             ruleName: rule.name,
             rewardType: rule.rewardType,
             rewardValue: rule.rewardValue,
+            ...appendRewardDiscountFields(rule),
             rewardServiceTypeId: rule.rewardServiceTypeId,
             earnedDate: new Date(),
             expiryDate: expiryDate,
           });
 
-          await loyalty.save();
+          await loyalty.save({ session });
         }
       }
     }

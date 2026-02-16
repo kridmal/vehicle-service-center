@@ -157,7 +157,7 @@
 .inventory-table table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 980px;
+  min-width: 1180px;
   background: #ffffff;
 }
 
@@ -279,6 +279,10 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.inventory-modal--discount {
+  width: min(860px, 100%);
 }
 
 .inventory-modal__head {

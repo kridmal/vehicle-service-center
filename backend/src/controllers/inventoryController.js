@@ -1,12 +1,23 @@
 import mongoose from "mongoose";
 import InventoryItem from "../models/InventoryItem.js";
 import InventoryCategory from "../models/InventoryCategory.js";
+import { normalizeItemDiscountType } from "../utils/itemDiscount.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const hasValue = (value) =>
+  value !== undefined && value !== null && String(value).trim() !== "";
+
+const toOptionalDate = (value) => {
+  if (!hasValue(value)) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 };
 
 const normalizeSegment = (value) =>
@@ -57,6 +68,76 @@ const resolveCategoryName = async (category) => {
   return match?.name || null;
 };
 
+const DISCOUNT_KEYS = [
+  "discountEnabled",
+  "discountType",
+  "discountValue",
+  "discountStartAt",
+  "discountEndAt",
+  "minQtyForDiscount",
+  "maxDiscountCap",
+  "discountNote",
+];
+
+const hasDiscountInput = (payload = {}) =>
+  DISCOUNT_KEYS.some((key) => Object.prototype.hasOwnProperty.call(payload, key));
+
+const normalizeDiscountPayload = (payload = {}) => {
+  const discountEnabled = Boolean(payload.discountEnabled);
+  const discountType = normalizeItemDiscountType(payload.discountType);
+  const discountValue = Math.max(0, toNumber(payload.discountValue));
+  const minQtyForDiscount = Math.max(1, toNumber(payload.minQtyForDiscount, 1));
+  const maxDiscountCap = hasValue(payload.maxDiscountCap)
+    ? Math.max(0, toNumber(payload.maxDiscountCap))
+    : null;
+  const rawStartAt = payload.discountStartAt;
+  const rawEndAt = payload.discountEndAt;
+  const discountStartAt = toOptionalDate(rawStartAt);
+  const discountEndAt = toOptionalDate(rawEndAt);
+
+  if (hasValue(rawStartAt) && !discountStartAt) {
+    return { error: "Invalid discount start date" };
+  }
+  if (hasValue(rawEndAt) && !discountEndAt) {
+    return { error: "Invalid discount end date" };
+  }
+
+  if (discountStartAt && discountEndAt && discountStartAt > discountEndAt) {
+    return { error: "Discount end date must be after start date" };
+  }
+
+  if (!discountEnabled) {
+    return {
+      discountEnabled: false,
+      discountType: null,
+      discountValue: 0,
+      discountStartAt: null,
+      discountEndAt: null,
+      minQtyForDiscount: 1,
+      maxDiscountCap: null,
+      discountNote: String(payload.discountNote || "").trim(),
+    };
+  }
+
+  if (!discountType) {
+    return { error: "Discount type must be PERCENT or AMOUNT" };
+  }
+  if (discountType === "PERCENT" && (discountValue < 0 || discountValue > 100)) {
+    return { error: "Percent discount must be between 0 and 100" };
+  }
+
+  return {
+    discountEnabled: true,
+    discountType,
+    discountValue,
+    discountStartAt,
+    discountEndAt,
+    minQtyForDiscount,
+    maxDiscountCap,
+    discountNote: String(payload.discountNote || "").trim(),
+  };
+};
+
 export const listInventory = async (req, res, next) => {
   try {
     const items = await InventoryItem.find().sort({ createdAt: -1 });
@@ -81,6 +162,7 @@ export const createInventoryItem = async (req, res, next) => {
       costPrice,
       sellingPrice,
       notes,
+      lastPurchaseCost,
     } = req.body;
     const resolvedName = itemName || name;
     if (
@@ -120,6 +202,10 @@ export const createInventoryItem = async (req, res, next) => {
         .status(400)
         .json({ message: "Selling price must be >= cost price" });
     }
+    const normalizedDiscount = normalizeDiscountPayload(req.body);
+    if (normalizedDiscount.error) {
+      return res.status(400).json({ message: normalizedDiscount.error });
+    }
 
     const item = await InventoryItem.create({
       sku: resolvedSku,
@@ -131,8 +217,12 @@ export const createInventoryItem = async (req, res, next) => {
       unit,
       minStock: minStock !== undefined ? toNumber(minStock) : 0,
       costPrice: numericCost,
+      lastPurchaseCost:
+        lastPurchaseCost !== undefined ? Math.max(0, toNumber(lastPurchaseCost)) : numericCost,
       sellingPrice: numericSelling,
       notes,
+      ...normalizedDiscount,
+      updatedBy: req.user?.id || null,
     });
 
     return res.status(201).json(item);
@@ -225,6 +315,9 @@ export const updateInventoryItem = async (req, res, next) => {
     if (update.costPrice !== undefined) {
       update.costPrice = toNumber(update.costPrice);
     }
+    if (update.lastPurchaseCost !== undefined) {
+      update.lastPurchaseCost = Math.max(0, toNumber(update.lastPurchaseCost));
+    }
     if (update.sellingPrice !== undefined) {
       update.sellingPrice = toNumber(update.sellingPrice);
     }
@@ -239,12 +332,30 @@ export const updateInventoryItem = async (req, res, next) => {
         .status(400)
         .json({ message: "Selling price must be >= cost price" });
     }
+    if (hasDiscountInput(update)) {
+      const mergedDiscountPayload = {
+        discountEnabled: update.discountEnabled ?? item.discountEnabled,
+        discountType: update.discountType ?? item.discountType,
+        discountValue: update.discountValue ?? item.discountValue,
+        discountStartAt: update.discountStartAt ?? item.discountStartAt,
+        discountEndAt: update.discountEndAt ?? item.discountEndAt,
+        minQtyForDiscount: update.minQtyForDiscount ?? item.minQtyForDiscount,
+        maxDiscountCap: update.maxDiscountCap ?? item.maxDiscountCap,
+        discountNote: update.discountNote ?? item.discountNote,
+      };
+      const normalizedDiscount = normalizeDiscountPayload(mergedDiscountPayload);
+      if (normalizedDiscount.error) {
+        return res.status(400).json({ message: normalizedDiscount.error });
+      }
+      Object.assign(update, normalizedDiscount);
+    }
 
     Object.entries(update).forEach(([key, value]) => {
       if (value !== undefined) {
         item.set(key, value);
       }
     });
+    item.updatedBy = req.user?.id || null;
 
     const saved = await item.save();
 

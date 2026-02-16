@@ -3,6 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
 import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import api from "../services/api.js";
+import {
+  computeDraftPricing,
+  formatFreeLaborRewardLabel,
+} from "../utils/loyaltyPricing.js";
+import { computeItemDiscount } from "../utils/itemDiscount.js";
 import { getJobCards, saveJobCards } from "../utils/storage.js";
 import "./JobCards.css";
 
@@ -36,7 +41,34 @@ function JobCards() {
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoiceError, setInvoiceError] = useState("");
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [appliedRewards, setAppliedRewards] = useState([]);
+  const [availableRewards, setAvailableRewards] = useState([]);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
   const navigate = useNavigate();
+
+  const buildRewardSelectionKey = (reward) =>
+    `${String(reward?.ruleId || "")}:${String(
+      reward?.milestoneNumber ?? "legacy"
+    )}`;
+
+  const formatMoney = (value) =>
+    new Intl.NumberFormat("en-LK", {
+      style: "currency",
+      currency: "LKR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0);
+
+  const formatRewardSummary = (reward) => {
+    const rewardType = String(reward?.rewardType || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (rewardType === "free_labor") {
+      return formatFreeLaborRewardLabel(reward);
+    }
+    return reward?.rewardType || "reward";
+  };
 
   useEffect(() => {
     setAllJobs(getJobCards());
@@ -234,7 +266,9 @@ function JobCards() {
     setAssignedWorkerText(job.assignedWorker || "");
     setJobStatus(job.status || "OPEN");
     setLaborCharges(
-      job.laborCharges !== undefined && job.laborCharges !== null
+      job.laborChargesOriginal !== undefined && job.laborChargesOriginal !== null
+        ? String(job.laborChargesOriginal)
+        : job.laborCharges !== undefined && job.laborCharges !== null
         ? String(job.laborCharges)
         : ""
     );
@@ -242,6 +276,13 @@ function JobCards() {
     setWorkNotes(job.workNotes || "");
     setPartsUsed(job.partsUsed || []);
     setJobServices(normalizeJobServices(job.services || []));
+    setAppliedRewards(
+      Array.isArray(job.appliedRewards) && job.appliedRewards.length > 0
+        ? [job.appliedRewards[0]]
+        : []
+    );
+    setAvailableRewards([]);
+    setLoyaltyLoading(false);
     setInventorySearch("");
     setSelectedInventoryId("");
     setPartQuantity("");
@@ -249,6 +290,26 @@ function JobCards() {
     setModalError("");
     setInvoiceData(null);
     setInvoiceError("");
+
+    const customerMongoId = resolveOwnerMongoId(job);
+    const vehicleMongoId = resolveVehicleMongoId(job);
+    if (customerMongoId) {
+      setLoyaltyLoading(true);
+      api
+        .get(`/loyalty/customer/${customerMongoId}/eligible`, {
+          params: { vehicleId: vehicleMongoId },
+        })
+        .then(({ data }) => {
+          setAvailableRewards(
+            Array.isArray(data.availableRewards) ? data.availableRewards : []
+          );
+        })
+        .catch(() => {
+          setAvailableRewards([]);
+        })
+        .finally(() => setLoyaltyLoading(false));
+    }
+
     setIsModalOpen(true);
     try {
       const { data } = await api.get("/inventory");
@@ -324,6 +385,101 @@ function JobCards() {
         (item) => String(item._id || item.id) === selectedInventoryId
       ),
     [inventoryItems, selectedInventoryId]
+  );
+
+  const partPricingRows = useMemo(
+    () =>
+      partsUsed.map((part) => {
+        const item = inventoryItems.find(
+          (inv) => String(inv._id) === String(part.inventoryId)
+        );
+        const quantity = Number(part.quantity) || 0;
+        const unitPriceOriginal =
+          Number(part.unitPriceOriginal ?? part.unitPrice ?? item?.sellingPrice) || 0;
+        const hasSnapshot =
+          part.discountPerUnit !== undefined ||
+          part.unitPriceNet !== undefined ||
+          part.lineDiscountTotal !== undefined ||
+          part.lineTotal !== undefined;
+
+        const discountResult = computeItemDiscount({
+          unitPriceOriginal,
+          qty: quantity,
+          discountEnabled: item?.discountEnabled,
+          discountType: item?.discountType,
+          discountValue: item?.discountValue,
+          startAt: item?.discountStartAt,
+          endAt: item?.discountEndAt,
+          minQty: item?.minQtyForDiscount,
+          cap: item?.maxDiscountCap,
+        });
+
+        const discountPerUnit = hasSnapshot
+          ? Number(part.discountPerUnit) || 0
+          : discountResult.discountPerUnit;
+        const unitPriceNet = hasSnapshot
+          ? Number(part.unitPriceNet) || 0
+          : discountResult.unitPriceNet;
+        const lineDiscountTotal = hasSnapshot
+          ? Number(part.lineDiscountTotal) || 0
+          : discountResult.lineDiscountTotal;
+        const lineTotalNet = hasSnapshot
+          ? Number(part.lineTotal) || 0
+          : discountResult.lineTotalNet;
+
+        return {
+          key: part.inventoryId || part.sku,
+          itemName: item?.itemName || item?.name || "Item",
+          brand: item?.brand || "-",
+          variant: item?.variant || part.sku || "-",
+          unit: item?.unit || "",
+          quantity,
+          unitPriceOriginal,
+          discountPerUnit,
+          unitPriceNet,
+          lineDiscountTotal,
+          lineTotalOriginal: unitPriceOriginal * quantity,
+          lineTotalNet,
+        };
+      }),
+    [inventoryItems, partsUsed]
+  );
+
+  const partsSubtotalOriginal = useMemo(
+    () =>
+      partPricingRows.reduce(
+        (sum, row) => sum + (Number(row.lineTotalOriginal) || 0),
+        0
+      ),
+    [partPricingRows]
+  );
+
+  const partsDiscountTotal = useMemo(
+    () =>
+      partPricingRows.reduce(
+        (sum, row) => sum + (Number(row.lineDiscountTotal) || 0),
+        0
+      ),
+    [partPricingRows]
+  );
+
+  const partsSubtotalNet = useMemo(
+    () =>
+      partPricingRows.reduce(
+        (sum, row) => sum + (Number(row.lineTotalNet) || 0),
+        0
+      ),
+    [partPricingRows]
+  );
+
+  const pricingPreview = useMemo(
+    () =>
+      computeDraftPricing({
+        partsSubtotal: partsSubtotalNet,
+        laborChargesOriginal: Number(laborCharges) || 0,
+        appliedRewards,
+      }),
+    [appliedRewards, laborCharges, partsSubtotalNet]
   );
 
   const addPartUsage = () => {
@@ -405,6 +561,28 @@ function JobCards() {
     );
   };
 
+  const selectSingleReward = (reward) => {
+    if (!reward?.ruleId) return;
+    setAppliedRewards([
+      {
+        rewardId: reward._id || reward.rewardId || null,
+        ruleId: reward.ruleId,
+        ruleName: reward.ruleName,
+        rewardType: reward.rewardType,
+        rewardValue: reward.rewardValue,
+        rewardDiscountMode: reward.rewardDiscountMode ?? null,
+        rewardDiscountValue: reward.rewardDiscountValue ?? null,
+        rewardDiscountCap: reward.rewardDiscountCap ?? null,
+        milestoneNumber:
+          reward.milestoneNumber !== undefined ? reward.milestoneNumber : null,
+      },
+    ]);
+  };
+
+  const clearSelectedReward = () => {
+    setAppliedRewards([]);
+  };
+
   const handleSave = async () => {
     if (!activeJobCard) return;
     setIsSaving(true);
@@ -445,6 +623,7 @@ function JobCards() {
         laborCharges: Number(laborCharges) || 0,
         workNotes,
         services: jobServices,
+        appliedRewards: appliedRewards.slice(0, 1),
       };
       if (isWorkerFallback) {
         payload.assignedWorker = assignedWorkerText.trim();
@@ -456,21 +635,52 @@ function JobCards() {
         payload.paymentStatus = paymentStatus;
       }
 
-      await api.patch(`/job-cards/${mongoId}`, payload);
+      const { data: savedJobCard } = await api.patch(`/job-cards/${mongoId}`, payload);
+
+      const mergedJobState = {
+        mongoId: savedJobCard?._id || mongoId,
+        assignedWorker: savedJobCard?.assignedWorker ?? payload.assignedWorker,
+        assignedWorkers:
+          savedJobCard?.assignedWorkers ??
+          payload.assignedWorkers ??
+          activeJobCard.assignedWorkers,
+        status: savedJobCard?.status ?? payload.status,
+        partsUsed: savedJobCard?.partsUsed ?? payload.partsUsed,
+        laborCharges:
+          savedJobCard?.laborChargesOriginal ??
+          savedJobCard?.laborCharges ??
+          payload.laborCharges,
+        laborChargesOriginal:
+          savedJobCard?.laborChargesOriginal ?? payload.laborCharges,
+        loyaltyLaborDiscount: savedJobCard?.loyaltyLaborDiscount ?? 0,
+        laborChargesNet:
+          savedJobCard?.laborChargesNet ??
+          (savedJobCard?.laborChargesOriginal ?? payload.laborCharges),
+        subtotalPartsOriginal:
+          savedJobCard?.subtotalPartsOriginal ?? partsSubtotalOriginal,
+        partsDiscountTotal:
+          savedJobCard?.partsDiscountTotal ?? partsDiscountTotal,
+        subtotalParts: savedJobCard?.subtotalParts ?? pricingPreview.subtotalParts,
+        grandTotal:
+          savedJobCard?.grandTotal ??
+          (savedJobCard?.subtotalParts ?? pricingPreview.subtotalParts) +
+            (savedJobCard?.laborChargesNet ??
+              (savedJobCard?.laborChargesOriginal ?? payload.laborCharges)),
+        paymentStatus: savedJobCard?.paymentStatus ?? payload.paymentStatus,
+        workNotes: savedJobCard?.workNotes ?? payload.workNotes,
+        services: savedJobCard?.services ?? payload.services ?? activeJobCard.services,
+        appliedRewards:
+          Array.isArray(savedJobCard?.appliedRewards) &&
+          savedJobCard.appliedRewards.length > 0
+            ? [savedJobCard.appliedRewards[0]]
+            : [],
+      };
 
       const updated = allJobs.map((job) =>
         job.id === activeJobCard.id
           ? {
               ...job,
-              mongoId,
-              assignedWorker: payload.assignedWorker,
-              assignedWorkers: payload.assignedWorkers ?? job.assignedWorkers,
-              status: payload.status,
-              partsUsed: payload.partsUsed,
-              laborCharges: payload.laborCharges,
-              paymentStatus: payload.paymentStatus ?? job.paymentStatus,
-              workNotes: payload.workNotes,
-              services: payload.services ?? job.services,
+              ...mergedJobState,
             }
           : job
       );
@@ -480,19 +690,12 @@ function JobCards() {
         prev
           ? {
               ...prev,
-              mongoId,
-              assignedWorker: payload.assignedWorker,
-              assignedWorkers:
-                payload.assignedWorkers ?? prev.assignedWorkers,
-              status: payload.status,
-              partsUsed: payload.partsUsed,
-              laborCharges: payload.laborCharges,
-              paymentStatus: payload.paymentStatus ?? prev.paymentStatus,
-              workNotes: payload.workNotes,
-              services: payload.services ?? prev.services,
+              ...mergedJobState,
             }
           : prev
       );
+      setAppliedRewards(mergedJobState.appliedRewards);
+      setLaborCharges(String(mergedJobState.laborChargesOriginal || 0));
       if (!(jobStatus === "COMPLETED" && paymentStatus === "PAID")) {
         closeModal();
       }
@@ -1030,39 +1233,34 @@ function JobCards() {
                         <span>Material</span>
                         <span>Brand</span>
                         <span>Variant / SKU</span>
-                        <span>Price</span>
+                        <span>Unit (Original)</span>
+                        <span>Discount</span>
+                        <span>Unit (Net)</span>
                         <span>Qty</span>
-                        <span>Total</span>
+                        <span>Line Total (Net)</span>
                         <span>Action</span>
                       </div>
-                      {partsUsed.map((part) => {
-                        const item = inventoryItems.find(
-                          (inv) => String(inv._id) === String(part.inventoryId)
-                        );
-                        const itemName =
-                          item?.itemName || item?.name || "Item";
-                        const unitPrice =
-                          (part.unitPrice ?? Number(item?.sellingPrice)) || 0;
-                        const lineTotal =
-                          (Number(part.quantity) || 0) * unitPrice;
+                      {partPricingRows.map((part) => {
                         return (
                           <div
-                            key={part.inventoryId || part.sku}
+                            key={part.key}
                             className="materials-table__row"
                           >
-                            <span>{itemName}</span>
-                            <span>{item?.brand || "-"}</span>
-                            <span>{item?.variant || part.sku || "-"}</span>
-                            <span>{unitPrice}</span>
+                            <span>{part.itemName}</span>
+                            <span>{part.brand}</span>
+                            <span>{part.variant}</span>
+                            <span>{formatMoney(part.unitPriceOriginal)}</span>
+                            <span>-{formatMoney(part.lineDiscountTotal)}</span>
+                            <span>{formatMoney(part.unitPriceNet)}</span>
                             <span>
-                              {part.quantity} {item?.unit || ""}
+                              {part.quantity} {part.unit || ""}
                             </span>
-                            <span>{lineTotal}</span>
+                            <span>{formatMoney(part.lineTotalNet)}</span>
                             <button
                               type="button"
                               onClick={() =>
                                 removePartUsage(
-                                  String(part.inventoryId || part.sku)
+                                  String(part.key)
                                 )
                               }
                               disabled={isReadOnly}
@@ -1074,26 +1272,23 @@ function JobCards() {
                       })}
                     </div>
                     <div className="materials-total">
-                      <span>Total Cost</span>
-                      <strong>
-                        {partsUsed.reduce((sum, part) => {
-                          const item = inventoryItems.find(
-                            (inv) =>
-                              String(inv._id) === String(part.inventoryId)
-                          );
-                          const unitPrice =
-                            (part.unitPrice ?? Number(item?.sellingPrice)) || 0;
-                          return (
-                            sum + (Number(part.quantity) || 0) * unitPrice
-                          );
-                        }, 0)}
-                      </strong>
+                      <span>Materials Subtotal (Original)</span>
+                      <strong>{formatMoney(partsSubtotalOriginal)}</strong>
+                    </div>
+                    <div className="materials-total materials-total--discount">
+                      <span>Items Discount</span>
+                      <strong>-{formatMoney(partsDiscountTotal)}</strong>
+                    </div>
+                    <div className="materials-total">
+                      <span>Materials Subtotal (After item discounts)</span>
+                      <strong>{formatMoney(pricingPreview.subtotalParts)}</strong>
                     </div>
                   </>
                 )}
               </div>
             </div>
-            <div className="job-card-modal__section job-card-modal__split">              <div>
+            <div className="job-card-modal__section job-card-modal__split">
+              <div>
                 <h3>Labor Charges</h3>
                 <label htmlFor="labor-charges">Amount</label>
                 <input
@@ -1120,6 +1315,125 @@ function JobCards() {
                   <option value="PAID">PAID</option>
                 </select>
                 
+              </div>
+            </div>
+
+            <div className="job-card-modal__section">
+              <h3>Loyalty Rewards</h3>
+              {loyaltyLoading ? (
+                <p className="job-card-modal__muted">Checking rewards...</p>
+              ) : availableRewards.length === 0 && appliedRewards.length === 0 ? (
+                <p className="job-card-modal__muted">
+                  No rewards available for this customer.
+                </p>
+              ) : (
+                <div className="worker-select">
+                  {availableRewards.map((reward) => {
+                    const rewardKey = buildRewardSelectionKey(reward);
+                    const isApplied = appliedRewards.some(
+                      (appliedReward) =>
+                        buildRewardSelectionKey(appliedReward) === rewardKey
+                    );
+                    return (
+                      <label
+                        key={rewardKey}
+                        className={`worker-select__option ${
+                          isApplied ? "is-selected" : ""
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="job-card-loyalty-reward"
+                          checked={isApplied}
+                          onChange={() => selectSingleReward(reward)}
+                          disabled={isReadOnly}
+                        />
+                        <span className="worker-select__name">
+                          {reward.ruleName}
+                        </span>
+                        <span className="worker-select__meta">
+                          {formatRewardSummary(reward)}
+                          {reward.milestoneNumber
+                            ? ` • Milestone ${reward.milestoneNumber}`
+                            : ""}
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {appliedRewards
+                    .filter(
+                      (applied) =>
+                        !availableRewards.some(
+                          (avail) =>
+                            buildRewardSelectionKey(avail) ===
+                            buildRewardSelectionKey(applied)
+                        )
+                    )
+                    .map((reward) => (
+                      <label
+                        key={buildRewardSelectionKey(reward)}
+                        className="worker-select__option is-selected"
+                      >
+                        <input
+                          type="radio"
+                          name="job-card-loyalty-reward"
+                          checked={true}
+                          onChange={() => selectSingleReward(reward)}
+                          disabled={isReadOnly}
+                        />
+                        <span className="worker-select__name">
+                          {reward.ruleName}
+                        </span>
+                        <span className="worker-select__meta">
+                          Applied {formatRewardSummary(reward)}
+                        </span>
+                      </label>
+                    ))}
+                </div>
+              )}
+              {appliedRewards.length > 0 && !isReadOnly ? (
+                <div className="job-card-modal__actions">
+                  <button type="button" onClick={clearSelectedReward}>
+                    Remove Selected Reward
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="job-card-modal__section">
+              <h3>Totals</h3>
+              <div className="job-card-pricing">
+                <div className="job-card-pricing__row">
+                  <span>Materials Subtotal (Original)</span>
+                  <strong>{formatMoney(partsSubtotalOriginal)}</strong>
+                </div>
+                <div className="job-card-pricing__row is-discount">
+                  <span>Items Discount</span>
+                  <strong>-{formatMoney(partsDiscountTotal)}</strong>
+                </div>
+                <div className="job-card-pricing__row">
+                  <span>Materials Subtotal (After item discounts)</span>
+                  <strong>{formatMoney(pricingPreview.subtotalParts)}</strong>
+                </div>
+                <div className="job-card-pricing__row">
+                  <span>Labor Charges (Original)</span>
+                  <strong>{formatMoney(pricingPreview.laborChargesOriginal)}</strong>
+                </div>
+                {pricingPreview.selectedReward?.rewardType === "free_labor" ||
+                pricingPreview.loyaltyLaborDiscount > 0 ? (
+                  <div className="job-card-pricing__row is-discount">
+                    <span>Loyalty Discount (Free Labor)</span>
+                    <strong>-{formatMoney(pricingPreview.loyaltyLaborDiscount)}</strong>
+                  </div>
+                ) : null}
+                <div className="job-card-pricing__row">
+                  <span>Labor Charges (Net)</span>
+                  <strong>{formatMoney(pricingPreview.laborChargesNet)}</strong>
+                </div>
+                <div className="job-card-pricing__row is-grand">
+                  <span>Grand Total</span>
+                  <strong>{formatMoney(pricingPreview.grandTotal)}</strong>
+                </div>
               </div>
             </div>
 
@@ -1222,7 +1536,3 @@ function JobCards() {
 }
 
 export default JobCards;
-
-
-
-

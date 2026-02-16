@@ -451,6 +451,172 @@
   color: #94a3b8;
 }
 
+.job-card-loyalty {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card-loyalty__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card-loyalty__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #dbeafe;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.job-card-loyalty__item p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.job-card-pricing {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card-pricing__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-card-pricing__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.job-card-pricing__row span {
+  font-size: 13px;
+  color: #475569;
+}
+
+.job-card-pricing__row strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.job-card-pricing__row.is-discount {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.job-card-pricing__row.is-discount span,
+.job-card-pricing__row.is-discount strong {
+  color: #166534;
+}
+
+.job-card-pricing__row.is-grand {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+}
+
+.loyalty-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.loyalty-popup__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.loyalty-popup__panel {
+  position: relative;
+  width: min(640px, 100%);
+  max-height: 80vh;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.28);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.loyalty-popup__head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.loyalty-popup__head p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.loyalty-popup__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.loyalty-popup__item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.loyalty-popup__item input {
+  margin-top: 2px;
+  accent-color: #1e3a8a;
+}
+
+.loyalty-popup__item.is-selected {
+  border-color: #1e40af;
+  background: #eff6ff;
+}
+
+.loyalty-popup__item p {
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 12px;
+}
+
+.loyalty-popup__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .job-card-actions {
   display: flex;
   justify-content: flex-end;
@@ -542,6 +708,11 @@
   }
 
   .job-card-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .loyalty-popup__actions {
     flex-direction: column-reverse;
     align-items: stretch;
   }

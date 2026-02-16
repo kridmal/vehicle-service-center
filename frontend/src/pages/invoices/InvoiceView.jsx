@@ -4,6 +4,7 @@ import PageHeader from "../../components/PageHeader.jsx";
 import { useLocalStorageState } from "../../hooks/useLocalStorageState.js";
 import api from "../../services/api.js";
 import { getJobCards } from "../../utils/storage.js";
+import { formatFreeLaborRewardLabel } from "../../utils/loyaltyPricing.js";
 import "./InvoiceView.css";
 
 function InvoiceView() {
@@ -177,17 +178,76 @@ function InvoiceView() {
       maximumFractionDigits: 2,
     }).format(number);
   };
-  const partsSubtotal = (invoice.partsUsed || []).reduce((sum, part) => {
+  const derivedPartsSubtotalOriginal = (invoice.partsUsed || []).reduce((sum, part) => {
     const qty = Number(part.quantity) || 0;
-    const unit = Number(part.unitPrice) || 0;
+    const unit =
+      Number(part.unitPriceOriginal) || Number(part.unitPrice) || 0;
+    const line =
+      Number(part.lineTotalOriginal) || (qty > 0 && unit > 0 ? qty * unit : 0);
+    return sum + line;
+  }, 0);
+  const derivedPartsDiscountTotal = (invoice.partsUsed || []).reduce(
+    (sum, part) => sum + (Number(part.lineDiscountTotal) || 0),
+    0
+  );
+  const derivedPartsSubtotalNet = (invoice.partsUsed || []).reduce((sum, part) => {
+    const qty = Number(part.quantity) || 0;
+    const unit =
+      Number(part.unitPriceNet) || Number(part.unitPrice) || 0;
     const line =
       Number(part.lineTotal) || (qty > 0 && unit > 0 ? qty * unit : 0);
     return sum + line;
   }, 0);
-  const laborCharges = Number(invoice.laborCharges) || 0;
-  const discountAmount = Number(invoice.discount) || 0;
+  const partsSubtotalOriginal =
+    invoice.subtotalPartsOriginal !== undefined &&
+    invoice.subtotalPartsOriginal !== null
+      ? Number(invoice.subtotalPartsOriginal) || 0
+      : derivedPartsSubtotalOriginal;
+  const partsDiscountTotal =
+    invoice.partsDiscountTotal !== undefined &&
+    invoice.partsDiscountTotal !== null
+      ? Number(invoice.partsDiscountTotal) || 0
+      : derivedPartsDiscountTotal;
+  const partsSubtotal =
+    invoice.subtotalParts !== undefined && invoice.subtotalParts !== null
+      ? Number(invoice.subtotalParts) || 0
+      : derivedPartsSubtotalNet;
+  const laborChargesOriginal =
+    invoice.laborChargesOriginal !== undefined &&
+    invoice.laborChargesOriginal !== null
+      ? Number(invoice.laborChargesOriginal) || 0
+      : Number(invoice.laborCharges) || 0;
+  const loyaltyLaborDiscount =
+    invoice.loyaltyLaborDiscount !== undefined &&
+    invoice.loyaltyLaborDiscount !== null
+      ? Number(invoice.loyaltyLaborDiscount) || 0
+      : Number(invoice.discount) || 0;
+  const laborChargesNet =
+    invoice.laborChargesNet !== undefined && invoice.laborChargesNet !== null
+      ? Number(invoice.laborChargesNet) || 0
+      : Math.max(laborChargesOriginal - loyaltyLaborDiscount, 0);
   const grandTotal =
-    Number(invoice.totalAmount) || partsSubtotal + laborCharges - discountAmount;
+    invoice.totalAmount !== undefined && invoice.totalAmount !== null
+      ? Number(invoice.totalAmount) || 0
+      : Math.max(partsSubtotal + laborChargesNet, 0);
+  const hasFreeLaborReward = (invoice.appliedRewards || []).some(
+    (reward) =>
+      String(reward.rewardType || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_") === "free_labor"
+  );
+
+  const formatRewardSummary = (reward) => {
+    const rewardType = String(reward?.rewardType || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (rewardType === "free_labor") {
+      return formatFreeLaborRewardLabel(reward);
+    }
+    return reward?.rewardType || "Reward";
+  };
 
   const finalizeInvoice = async () => {
     setIsSaving(true);
@@ -314,21 +374,29 @@ function InvoiceView() {
                   <tr>
                     <th>Item Name</th>
                     <th className="table-right">Quantity</th>
-                    <th className="table-right">Unit Price</th>
-                    <th className="table-right">Line Total</th>
+                    <th className="table-right">Unit Price (Original)</th>
+                    <th className="table-right">Discount</th>
+                    <th className="table-right">Unit Price (Net)</th>
+                    <th className="table-right">Line Total (Net)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(invoice.partsUsed || []).map((part, index) => {
                     const qty = Number(part.quantity) || 0;
-                    const unit = Number(part.unitPrice) || 0;
-                    const line =
-                      Number(part.lineTotal) || (qty > 0 ? qty * unit : 0);
+                    const unitOriginal =
+                      Number(part.unitPriceOriginal) || Number(part.unitPrice) || 0;
+                    const discountLine = Number(part.lineDiscountTotal) || 0;
+                    const unitNet =
+                      Number(part.unitPriceNet) ||
+                      Math.max(0, (Number(part.lineTotal) || 0) / Math.max(1, qty));
+                    const line = Number(part.lineTotal) || (qty > 0 ? qty * unitNet : 0);
                     return (
                       <tr key={`${part.sku}-${index}`}>
                         <td>{part.itemName || "Part"}</td>
                         <td className="table-right">{qty || "-"}</td>
-                        <td className="table-right">{formatCurrency(unit)}</td>
+                        <td className="table-right">{formatCurrency(unitOriginal)}</td>
+                        <td className="table-right">-{formatCurrency(discountLine)}</td>
+                        <td className="table-right">{formatCurrency(unitNet)}</td>
                         <td className="table-right">{formatCurrency(line)}</td>
                       </tr>
                     );
@@ -390,37 +458,20 @@ function InvoiceView() {
           <div>
             <h2>Labor Charges</h2>
             <div className="invoice-labor">
-              {invoice.appliedRewards?.some((r) => r.rewardType === "free_labor") ? (
-                <>
-                  <strong style={{ textDecoration: "line-through", color: "#9ca3af" }}>
-                    {formatCurrency(laborCharges)}
-                  </strong>
-                  <strong style={{ color: "#16a34a", marginLeft: 8 }}>
-                    {formatCurrency(0)}
-                  </strong>
-                  <span style={{ color: "#16a34a", fontSize: 12, marginLeft: 6 }}>
-                    (Free Labor Reward)
-                  </span>
-                </>
-              ) : invoice.appliedRewards?.some(
-                  (r) => r.rewardType === "discount_percentage" && r.discountAmount > 0
-                ) ? (
-                <>
-                  <strong style={{ textDecoration: "line-through", color: "#9ca3af" }}>
-                    {formatCurrency(laborCharges)}
-                  </strong>
-                  <strong style={{ color: "#16a34a", marginLeft: 8 }}>
-                    {formatCurrency(
-                      laborCharges -
-                        invoice.appliedRewards
-                          .filter((r) => r.rewardType === "discount_percentage")
-                          .reduce((sum, r) => sum + (r.discountAmount || 0), 0)
-                    )}
-                  </strong>
-                </>
-              ) : (
-                <strong>{formatCurrency(laborCharges)}</strong>
-              )}
+              <div className="invoice-summary-row">
+                <span>Labor Charges (Original)</span>
+                <strong>{formatCurrency(laborChargesOriginal)}</strong>
+              </div>
+              {hasFreeLaborReward || loyaltyLaborDiscount > 0 ? (
+                <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
+                  <span>Loyalty Discount (Free Labor)</span>
+                  <strong>-{formatCurrency(loyaltyLaborDiscount)}</strong>
+                </div>
+              ) : null}
+              <div className="invoice-summary-row">
+                <span>Labor Charges (Net)</span>
+                <strong>{formatCurrency(laborChargesNet)}</strong>
+              </div>
               {invoice.laborDescription ? (
                 <p>{invoice.laborDescription}</p>
               ) : null}
@@ -447,10 +498,7 @@ function InvoiceView() {
                       <span>
                         {reward.ruleName || "Loyalty Reward"}
                         <span style={{ color: "#6b7280", marginLeft: 6, fontSize: 12 }}>
-                          {reward.rewardType === "free_labor" && "(Free Labor)"}
-                          {reward.rewardType === "discount_percentage" && `(${reward.rewardValue}% Off)`}
-                          {reward.rewardType === "discount_amount" && `(LKR ${reward.rewardValue} Off)`}
-                          {reward.rewardType === "free_service" && "(Free Service)"}
+                          ({formatRewardSummary(reward)})
                         </span>
                       </span>
                       {reward.discountAmount > 0 && (
@@ -467,49 +515,38 @@ function InvoiceView() {
           <div className="invoice-summary">
             <h2>Summary</h2>
             <div className="invoice-summary-row">
-              <span>Subtotal</span>
+              <span>Materials Subtotal (Original)</span>
+              <strong>{formatCurrency(partsSubtotalOriginal)}</strong>
+            </div>
+            <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
+              <span>Items Discount</span>
+              <strong>-{formatCurrency(partsDiscountTotal)}</strong>
+            </div>
+            <div className="invoice-summary-row">
+              <span>Materials Subtotal (After item discounts)</span>
               <strong>{formatCurrency(partsSubtotal)}</strong>
             </div>
             <div className="invoice-summary-row">
-              <span>Labor Charges</span>
-              {discountAmount > 0 && invoice.appliedRewards?.some(
-                (r) => r.rewardType === "free_labor" || r.rewardType === "discount_percentage"
-              ) ? (
-                <strong>
-                  <span style={{ textDecoration: "line-through", color: "#9ca3af", marginRight: 8 }}>
-                    {formatCurrency(laborCharges)}
-                  </span>
-                  <span style={{ color: "#16a34a" }}>
-                    {formatCurrency(
-                      invoice.appliedRewards.some((r) => r.rewardType === "free_labor")
-                        ? 0
-                        : Math.max(
-                            laborCharges -
-                              invoice.appliedRewards
-                                .filter((r) => r.rewardType === "discount_percentage")
-                                .reduce((sum, r) => sum + (r.discountAmount || 0), 0),
-                            0
-                          )
-                    )}
-                  </span>
-                </strong>
-              ) : (
-                <strong>{formatCurrency(laborCharges)}</strong>
-              )}
+              <span>Labor Charges (Original)</span>
+              <strong>{formatCurrency(laborChargesOriginal)}</strong>
             </div>
-            {discountAmount ? (
+            {hasFreeLaborReward || loyaltyLaborDiscount > 0 ? (
               <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
                 <span>
-                  Loyalty Discount
+                  Loyalty Discount (Free Labor)
                   {invoice.appliedRewards?.length > 0 && (
                     <small style={{ display: "block", fontSize: 11, color: "#6b7280" }}>
                       {invoice.appliedRewards.map((r) => r.ruleName).filter(Boolean).join(", ")}
                     </small>
                   )}
                 </span>
-                <strong>-{formatCurrency(discountAmount)}</strong>
+                <strong>-{formatCurrency(loyaltyLaborDiscount)}</strong>
               </div>
             ) : null}
+            <div className="invoice-summary-row">
+              <span>Labor Charges (Net)</span>
+              <strong>{formatCurrency(laborChargesNet)}</strong>
+            </div>
             <div className="invoice-summary-total">
               <span>Grand Total</span>
               <strong>{formatCurrency(grandTotal)}</strong>

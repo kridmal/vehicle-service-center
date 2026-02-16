@@ -5,12 +5,34 @@ import Invoice from "../models/Invoice.js";
 import JobCard from "../models/JobCard.js";
 import Vehicle from "../models/Vehicle.js";
 import { updateLoyaltyStats } from "./loyaltyController.js";
+import { computeItemDiscount, roundMoney } from "../utils/itemDiscount.js";
+import {
+  deriveLoyaltyPricing,
+  normalizeSelectedReward,
+} from "../utils/loyaltyDiscount.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const toNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const roundCurrency = (value) => roundMoney(value);
+
+const hasValue = (value) =>
+  value !== undefined && value !== null && String(value).trim() !== "";
+
+const toOptionalNumber = (value) => (hasValue(value) ? toNumber(value) : null);
+
+const normalizeDiscountMode = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase();
+  if (["PERCENT", "AMOUNT", "FULL"].includes(normalized)) {
+    return normalized;
+  }
+  return null;
 };
 
 const buildInvoiceNumber = async () => {
@@ -22,55 +44,6 @@ const buildInvoiceNumber = async () => {
     return buildInvoiceNumber();
   }
   return candidate;
-};
-
-/**
- * Recalculate the loyalty discount from appliedRewards using actual invoice values.
- * This is needed because the frontend calculates the discount at job card creation time
- * when laborCharges may not yet be known (e.g. free_labor rewards show 0 discount).
- */
-const calculateLoyaltyDiscount = (laborCharges, partsTotal, appliedRewards) => {
-  if (!appliedRewards || appliedRewards.length === 0) {
-    return { totalDiscount: 0, rewards: [] };
-  }
-
-  let totalDiscount = 0;
-  const rewards = appliedRewards.map((reward) => {
-    let discountAmount = 0;
-
-    switch (reward.rewardType) {
-      case "free_labor":
-        discountAmount = laborCharges;
-        break;
-      case "discount_percentage": {
-        const subtotal = partsTotal + laborCharges;
-        discountAmount = subtotal * ((reward.rewardValue || 0) / 100);
-        if (reward.maxDiscountAmount) {
-          discountAmount = Math.min(discountAmount, reward.maxDiscountAmount);
-        }
-        break;
-      }
-      case "discount_amount":
-        discountAmount = reward.rewardValue || 0;
-        break;
-      case "free_service":
-        discountAmount = toNumber(reward.discountAmount);
-        break;
-      default:
-        break;
-    }
-
-    totalDiscount += discountAmount;
-    return {
-      ruleId: reward.ruleId,
-      ruleName: reward.ruleName,
-      rewardType: reward.rewardType,
-      rewardValue: reward.rewardValue,
-      discountAmount,
-    };
-  });
-
-  return { totalDiscount, rewards };
 };
 
 const buildPartsUsed = (partsUsed, inventoryItems) => {
@@ -86,37 +59,219 @@ const buildPartsUsed = (partsUsed, inventoryItems) => {
       const item =
         (part.sku ? itemBySku.get(part.sku) : null) ||
         (part.inventoryId ? itemById.get(String(part.inventoryId)) : null);
-      const unitPrice = toNumber(item?.sellingPrice);
-      const lineTotal = unitPrice * qty;
+
+      if (!item) {
+        return {
+          error: "Inventory item not found",
+        };
+      }
+      const unitPriceOriginal = hasValue(part.unitPriceOriginal)
+        ? toNumber(part.unitPriceOriginal)
+        : toNumber(item.sellingPrice);
+      const lineTotalOriginal = hasValue(part.lineTotalOriginal)
+        ? toNumber(part.lineTotalOriginal)
+        : roundCurrency(unitPriceOriginal * qty);
+
+      const hasSnapshot =
+        hasValue(part.discountPerUnit) ||
+        hasValue(part.unitPriceNet) ||
+        hasValue(part.lineDiscountTotal) ||
+        hasValue(part.lineTotal);
+
+      const computedDiscount = computeItemDiscount({
+        unitPriceOriginal,
+        qty,
+        discountEnabled: item.discountEnabled,
+        discountType: item.discountType,
+        discountValue: item.discountValue,
+        startAt: item.discountStartAt,
+        endAt: item.discountEndAt,
+        minQty: item.minQtyForDiscount,
+        cap: item.maxDiscountCap,
+      });
+
+      const discountPerUnit = roundCurrency(
+        hasSnapshot ? toNumber(part.discountPerUnit) : computedDiscount.discountPerUnit
+      );
+      const unitPriceNet = roundCurrency(
+        hasSnapshot ? toNumber(part.unitPriceNet) : computedDiscount.unitPriceNet
+      );
+      const lineDiscountTotal = roundCurrency(
+        hasSnapshot ? toNumber(part.lineDiscountTotal) : computedDiscount.lineDiscountTotal
+      );
+      const lineTotalNet = roundCurrency(
+        hasSnapshot
+          ? toNumber(part.lineTotal)
+          : Math.max(0, lineTotalOriginal - lineDiscountTotal)
+      );
+
       return {
         sku: item?.sku || part.sku || "",
         itemName: item?.itemName || item?.name || "",
         brand: item?.brand || "",
         variant: item?.variant || "",
         unit: item?.unit || "",
-        unitPrice,
+        unitPriceOriginal: roundCurrency(unitPriceOriginal),
+        discountPerUnit,
+        unitPriceNet,
+        unitPrice: unitPriceNet,
         quantity: qty,
-        lineTotal,
+        lineTotalOriginal: roundCurrency(lineTotalOriginal),
+        lineDiscountTotal,
+        lineTotal: lineTotalNet,
       };
     })
     .filter(Boolean);
+};
+
+const mapAppliedRewardsForInvoice = (appliedRewards, laborDiscount) => {
+  const selectedReward = normalizeSelectedReward(appliedRewards);
+  if (!selectedReward || !selectedReward.ruleId) {
+    return [];
+  }
+
+  return [
+    {
+      rewardId: selectedReward.rewardId || null,
+      ruleId: selectedReward.ruleId,
+      ruleName: selectedReward.ruleName || "Loyalty Reward",
+      rewardType: selectedReward.rewardType,
+      rewardValue: toNumber(selectedReward.rewardValue),
+      rewardDiscountMode: normalizeDiscountMode(selectedReward.rewardDiscountMode),
+      rewardDiscountValue: toOptionalNumber(selectedReward.rewardDiscountValue),
+      rewardDiscountCap: toOptionalNumber(selectedReward.rewardDiscountCap),
+      milestoneNumber: selectedReward.milestoneNumber,
+      discountAmount:
+        selectedReward.rewardType === "free_labor" ? toNumber(laborDiscount) : 0,
+    },
+  ];
+};
+
+const buildInvoicePricingSnapshot = ({ jobCard, partsUsed }) => {
+  const partsSubtotalOriginal = partsUsed.reduce(
+    (sum, item) => sum + toNumber(item.lineTotalOriginal),
+    0
+  );
+  const partsDiscountTotal = partsUsed.reduce(
+    (sum, item) => sum + toNumber(item.lineDiscountTotal),
+    0
+  );
+  const partsSubtotal = partsUsed.reduce(
+    (sum, item) => sum + toNumber(item.lineTotal),
+    0
+  );
+  const laborChargesOriginal = toNumber(
+    jobCard.laborChargesOriginal ?? jobCard.laborCharges
+  );
+
+  const pricing = deriveLoyaltyPricing({
+    partsSubtotal,
+    laborChargesOriginal,
+    appliedRewards: jobCard.appliedRewards || [],
+  });
+
+  const appliedRewards = mapAppliedRewardsForInvoice(
+    jobCard.appliedRewards || [],
+    pricing.loyaltyLaborDiscount
+  );
+
+  return {
+    partsSubtotalOriginal: roundCurrency(partsSubtotalOriginal),
+    partsDiscountTotal: roundCurrency(partsDiscountTotal),
+    partsSubtotal: pricing.subtotalParts,
+    laborChargesOriginal: pricing.laborChargesOriginal,
+    loyaltyLaborDiscount: pricing.loyaltyLaborDiscount,
+    laborChargesNet: pricing.laborChargesNet,
+    subtotal: pricing.subtotal,
+    totalAmount: pricing.grandTotal,
+    appliedRewards,
+  };
+};
+
+const makeHttpError = (status, message) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
+const isTransactionUnsupportedError = (error) =>
+  /transaction|replica set|mongos/i.test(String(error?.message || ""));
+
+const finalizeInvoiceWithoutTransaction = async (invoiceId) => {
+  const invoice = await Invoice.findById(invoiceId);
+  if (!invoice) {
+    throw makeHttpError(404, "Invoice not found");
+  }
+  if (invoice.status === "FINALIZED") {
+    throw makeHttpError(400, "Invoice is already finalized");
+  }
+
+  invoice.status = "FINALIZED";
+  await invoice.save();
+
+  if (invoice.customer) {
+    await updateLoyaltyStats(invoice.customer, invoice.totalAmount || 0, invoice.jobCard, {
+      invoiceId: invoice._id,
+    });
+  }
+
+  return invoice;
+};
+
+const finalizeInvoiceWithLoyalty = async (invoiceId) => {
+  const session = await mongoose.startSession();
+  try {
+    let finalizedInvoice = null;
+    await session.withTransaction(async () => {
+      const invoice = await Invoice.findById(invoiceId).session(session);
+      if (!invoice) {
+        throw makeHttpError(404, "Invoice not found");
+      }
+      if (invoice.status === "FINALIZED") {
+        throw makeHttpError(400, "Invoice is already finalized");
+      }
+
+      invoice.status = "FINALIZED";
+      await invoice.save({ session });
+
+      if (invoice.customer) {
+        await updateLoyaltyStats(
+          invoice.customer,
+          invoice.totalAmount || 0,
+          invoice.jobCard,
+          {
+            session,
+            invoiceId: invoice._id,
+          }
+        );
+      }
+
+      finalizedInvoice = invoice;
+    });
+
+    return finalizedInvoice;
+  } catch (error) {
+    if (isTransactionUnsupportedError(error)) {
+      return finalizeInvoiceWithoutTransaction(invoiceId);
+    }
+    throw error;
+  } finally {
+    await session.endSession();
+  }
 };
 
 export const listInvoices = async (req, res, next) => {
   try {
     const query = {};
 
-    // Filter by job card
     if (req.query?.jobCardId && isValidId(req.query.jobCardId)) {
       query.jobCard = req.query.jobCardId;
     }
 
-    // Filter by invoice type
     if (req.query?.type && ["SALE", "JOB_CARD"].includes(req.query.type)) {
       query.invoiceType = req.query.type;
     }
 
-    // Filter by payment status
     if (req.query?.status && ["PAID", "UNPAID", "PARTIAL"].includes(req.query.status)) {
       query.paymentStatus = req.query.status;
     }
@@ -173,10 +328,10 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
       return res.status(409).json({ message: "Invoice already exists" });
     }
 
-    const inventoryIds = jobCard.partsUsed
+    const inventoryIds = (jobCard.partsUsed || [])
       .map((part) => part.inventoryId)
       .filter(Boolean);
-    const skuList = jobCard.partsUsed
+    const skuList = (jobCard.partsUsed || [])
       .map((part) => part.sku)
       .filter(Boolean);
     const inventoryQuery = [
@@ -189,28 +344,19 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
         : await InventoryItem.find({ $or: inventoryQuery });
 
     const partsUsed = buildPartsUsed(jobCard.partsUsed || [], inventoryItems);
-    const partsTotal = partsUsed.reduce(
-      (sum, item) => sum + toNumber(item.lineTotal),
-      0
-    );
-    const laborCharges = toNumber(jobCard.laborCharges);
+    const missingPart = partsUsed.find((entry) => entry?.error);
+    if (missingPart) {
+      return res.status(400).json({ message: missingPart.error });
+    }
 
-    // Recalculate loyalty discount from appliedRewards using actual labor/parts values.
-    // The frontend-stored loyaltyDiscount may be 0 for free_labor rewards because
-    // laborCharges aren't known at job card creation time.
-    const { totalDiscount: loyaltyDiscount, rewards: resolvedRewards } =
-      calculateLoyaltyDiscount(
-        laborCharges,
-        partsTotal,
-        jobCard.appliedRewards || []
-      );
-    const totalAmount = Math.max(partsTotal + laborCharges - loyaltyDiscount, 0);
+    const pricing = buildInvoicePricingSnapshot({
+      jobCard,
+      partsUsed,
+    });
 
     const ownerCandidate = jobCard.ownerId || jobCard.customerId;
     const customerId = isValidId(ownerCandidate) ? ownerCandidate : null;
-    const vehicleId = isValidId(jobCard.vehicleId)
-      ? jobCard.vehicleId
-      : null;
+    const vehicleId = isValidId(jobCard.vehicleId) ? jobCard.vehicleId : null;
 
     const [customer, vehicle] = await Promise.all([
       customerId ? Customer.findById(customerId) : null,
@@ -227,16 +373,25 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
       customer: customer?._id,
       vehicle: vehicle?._id,
       customerName: customer?.name || "",
+      customerPhone: customer?.phone || "",
       vehicleNumber: vehicle?.vehicleNumber || "",
+      vehicleBrand: vehicle?.brandName || "",
+      vehicleModel: vehicle?.modelName || "",
       items: partsUsed,
       partsUsed,
-      laborCharges,
-      subtotal: partsTotal + laborCharges,
-      discount: loyaltyDiscount,
-      totalAmount,
-      appliedRewards: resolvedRewards,
+      subtotalPartsOriginal: pricing.partsSubtotalOriginal,
+      partsDiscountTotal: pricing.partsDiscountTotal,
+      subtotalParts: pricing.partsSubtotal,
+      laborCharges: pricing.laborChargesOriginal,
+      laborChargesOriginal: pricing.laborChargesOriginal,
+      loyaltyLaborDiscount: pricing.loyaltyLaborDiscount,
+      laborChargesNet: pricing.laborChargesNet,
+      subtotal: pricing.subtotal,
+      discount: pricing.loyaltyLaborDiscount,
+      totalAmount: pricing.totalAmount,
+      appliedRewards: pricing.appliedRewards,
       paidAmount: 0,
-      balanceAmount: totalAmount,
+      balanceAmount: pricing.totalAmount,
       paymentMethod: null,
       paymentStatus: "UNPAID",
       status: "DRAFT",
@@ -256,7 +411,7 @@ export const updateInvoice = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid invoice id" });
     }
 
-    const invoice = await Invoice.findById(id);
+    let invoice = await Invoice.findById(id);
     if (!invoice) {
       return res.status(404).json({ message: "Invoice not found" });
     }
@@ -267,16 +422,22 @@ export const updateInvoice = async (req, res, next) => {
       }
     }
 
-    let wasJustFinalized = false;
     if (req.body.status) {
-      if (invoice.status === "FINALIZED") {
-        return res.status(400).json({ message: "Invoice is already finalized" });
-      }
       if (req.body.status !== "FINALIZED") {
         return res.status(400).json({ message: "Invalid invoice status" });
       }
-      invoice.status = "FINALIZED";
-      wasJustFinalized = true;
+      if (invoice.status === "FINALIZED") {
+        return res.status(400).json({ message: "Invoice is already finalized" });
+      }
+
+      try {
+        invoice = await finalizeInvoiceWithLoyalty(id);
+      } catch (error) {
+        if (error.status) {
+          return res.status(error.status).json({ message: error.message });
+        }
+        throw error;
+      }
     }
 
     if (req.body.paymentStatus) {
@@ -290,25 +451,10 @@ export const updateInvoice = async (req, res, next) => {
         return res.status(400).json({ message: "Invalid payment status" });
       }
       invoice.paymentStatus = nextStatus;
+      invoice = await invoice.save();
     }
 
-    const saved = await invoice.save();
-
-    // Update customer loyalty stats when invoice is finalized
-    if (wasJustFinalized && invoice.customer) {
-      try {
-        await updateLoyaltyStats(
-          invoice.customer,
-          invoice.totalAmount || 0,
-          invoice.jobCard
-        );
-      } catch (loyaltyError) {
-        console.error("Error updating loyalty stats:", loyaltyError);
-        // Don't fail the invoice update if loyalty update fails
-      }
-    }
-
-    return res.json(saved);
+    return res.json(invoice);
   } catch (error) {
     return next(error);
   }

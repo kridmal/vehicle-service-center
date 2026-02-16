@@ -1,0 +1,251 @@
+.sales-invoice-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sales-invoice-shell {
+  background: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.09);
+  padding: 20px;
+  max-width: 980px;
+}
+
+.sales-invoice-shell--loading {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+
+.sales-invoice-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 14px;
+}
+
+.sales-invoice-header h1 {
+  margin: 0;
+  font-size: 26px;
+  color: #0f172a;
+}
+
+.sales-invoice-header p {
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 13px;
+}
+
+.sales-invoice-title-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.sales-invoice-title {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.sales-invoice-number {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.sales-paid-stamp {
+  border: 2px solid #16a34a;
+  color: #166534;
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.sales-invoice-print {
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 7px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sales-invoice-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.sales-invoice-meta h2,
+.sales-invoice-section h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.sales-invoice-meta div div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: #334155;
+  padding: 3px 0;
+}
+
+.sales-invoice-section {
+  margin-top: 14px;
+}
+
+.sales-invoice-table {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: auto;
+}
+
+.sales-invoice-table table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 960px;
+}
+
+.sales-invoice-table th,
+.sales-invoice-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.sales-invoice-table th {
+  background: #f8fafc;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+}
+
+.sales-invoice-table .right {
+  text-align: right;
+}
+
+.sales-invoice-totals {
+  margin-top: 14px;
+  margin-left: auto;
+  width: min(360px, 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sales-invoice-totals div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.sales-invoice-grand {
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.sales-invoice-footer {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 12px;
+}
+
+.sales-invoice-footer p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+}
+
+.sales-invoice-back {
+  color: #1e3a8a;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sales-invoice-error {
+  margin: 0;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+@media (max-width: 820px) {
+  .sales-invoice-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .sales-invoice-header {
+    flex-direction: column;
+  }
+
+  .sales-invoice-title-block {
+    align-items: flex-start;
+  }
+
+  .sales-invoice-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .sales-invoice-page {
+    padding: 0;
+    margin: 0;
+    background: #ffffff;
+  }
+
+  .sales-invoice-shell {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    max-width: none;
+    width: 100%;
+    padding: 0;
+  }
+
+  .sales-invoice-table,
+  .sales-invoice-totals {
+    break-inside: avoid;
+  }
+}

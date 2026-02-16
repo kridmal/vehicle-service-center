@@ -11,16 +11,31 @@ const loyaltyRuleSchema = new mongoose.Schema(
     },
     triggerType: {
       type: String,
-      enum: ["visit_count", "spend_amount"],
+      // Keep both legacy and current values for backward compatibility
+      enum: ["visit_count", "spend_amount", "spending_amount", "service_count"],
       required: true,
     },
     triggerValue: { type: Number, required: true, min: 1 },
     rewardType: {
       type: String,
-      enum: ["free_service", "discount_percentage", "discount_fixed", "free_labor"],
+      // Keep both legacy and current values for backward compatibility
+      enum: [
+        "free_service",
+        "discount_percentage",
+        "discount_fixed",
+        "discount_amount",
+        "free_labor",
+      ],
       required: true,
     },
     rewardValue: { type: Number, required: true, min: 0 },
+    rewardDiscountMode: {
+      type: String,
+      enum: ["PERCENT", "AMOUNT", "FULL"],
+      default: null,
+    },
+    rewardDiscountValue: { type: Number, min: 0, default: null },
+    rewardDiscountCap: { type: Number, min: 0, default: null },
     rewardServiceTypeId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "ServiceType",

@@ -4,11 +4,13 @@ import { useAuth } from "../context/AuthContext.jsx";
 const PATH_PERMISSION_MAP = [
   { prefix: "/dashboard", permission: "viewDashboard" },
   { prefix: "/inventory", permission: "manageInventory" },
+  { prefix: "/purchases", permission: "manageInventory" },
   { prefix: "/reports", permission: "viewReports" },
   { prefix: "/staff", permission: "manageEmployees" },
   { prefix: "/attendance", permission: "markAttendance" },
   { prefix: "/payroll", permission: "runPayroll" },
   { prefix: "/payslips", permission: "runPayroll" },
+  { prefix: "/sales", permission: "manageSales" },
   { prefix: "/roles", permission: "manageRoles" },
   { prefix: "/leave", permission: "approveLeave" },
   { prefix: "/settings", permission: "manageSalaryConfig" },

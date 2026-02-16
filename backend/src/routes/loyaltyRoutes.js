@@ -6,6 +6,7 @@ import {
   updateLoyaltyRule,
   deleteLoyaltyRule,
   getCustomerLoyalty,
+  previewJobCardRewards,
   checkEligibleRewards,
   redeemReward,
   recalculateLoyalty,
@@ -21,7 +22,13 @@ router.delete("/rules/:id", requireAuth, requireOwner, deleteLoyaltyRule);
 
 // Customer loyalty
 router.get("/customer/:customerId", requireAuth, getCustomerLoyalty);
+router.get(
+  "/customer/:customerId/job-card-preview",
+  requireAuth,
+  previewJobCardRewards
+);
 router.get("/customer/:customerId/eligible", requireAuth, checkEligibleRewards);
+router.get("/check-rewards/:customerId", requireAuth, checkEligibleRewards);
 router.post("/customer/:customerId/redeem", requireAuth, redeemReward);
 router.post("/customer/:customerId/recalculate", requireAuth, recalculateLoyalty);
 

@@ -4,8 +4,15 @@ import PageHeader from "../components/PageHeader.jsx";
 import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import { createId } from "../utils/id.js";
 import api from "../services/api.js";
+import {
+  computeDraftPricing,
+  formatFreeLaborRewardLabel,
+} from "../utils/loyaltyPricing.js";
 import { getJobCards, saveJobCards } from "../utils/storage.js";
 import "./JobCardNew.css";
+
+const buildRewardKey = (reward) =>
+  `${String(reward.ruleId)}:${String(reward.milestoneNumber ?? "legacy")}`;
 
 function JobCardNew() {
   const [customers, setCustomers] = useLocalStorageState("ksc_customers", []);
@@ -18,6 +25,7 @@ function JobCardNew() {
   const [selectedServices, setSelectedServices] = useState([]);
   const [serviceAddError, setServiceAddError] = useState("");
   const [serviceTasksDraft, setServiceTasksDraft] = useState([]);
+  const [laborCharges, setLaborCharges] = useState("");
   const [notes, setNotes] = useState("");
   const [ownerSearch, setOwnerSearch] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
@@ -40,7 +48,32 @@ function JobCardNew() {
   const [vehicleLookupError, setVehicleLookupError] = useState("");
   const [syncError, setSyncError] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [loyaltyPreviewLoading, setLoyaltyPreviewLoading] = useState(false);
+  const [loyaltyPopupOpen, setLoyaltyPopupOpen] = useState(false);
+  const [loyaltyPopupRewards, setLoyaltyPopupRewards] = useState([]);
+  const [selectedPopupRewardKey, setSelectedPopupRewardKey] = useState("");
+  const [draftSuppressedMilestones, setDraftSuppressedMilestones] = useState([]);
+  const [appliedRewards, setAppliedRewards] = useState([]);
   const navigate = useNavigate();
+
+  const formatMoney = (value) =>
+    new Intl.NumberFormat("en-LK", {
+      style: "currency",
+      currency: "LKR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0);
+
+  const formatRewardSummary = (reward) => {
+    const rewardType = String(reward?.rewardType || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (rewardType === "free_labor") {
+      return formatFreeLaborRewardLabel(reward);
+    }
+    return reward?.rewardType || "reward";
+  };
 
   const filteredOwners = useMemo(() => {
     const query = ownerSearch.trim().toLowerCase();
@@ -182,6 +215,57 @@ function JobCardNew() {
     [customers, currentOwnerId]
   );
 
+  const selectedServiceTypeIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          selectedServices
+            .map((service) => String(service.serviceType || "").trim())
+            .filter(Boolean)
+        ),
+      ],
+    [selectedServices]
+  );
+
+  const selectedServiceSignature = useMemo(
+    () => selectedServiceTypeIds.join(","),
+    [selectedServiceTypeIds]
+  );
+
+  const activeOwnerLocalIdForPreview = useMemo(() => {
+    if (changeOwner && ownerId) {
+      return ownerId;
+    }
+    return currentOwnerId || "";
+  }, [changeOwner, ownerId, currentOwnerId]);
+
+  const previewOwner = useMemo(
+    () =>
+      customers.find((customer) => customer.id === activeOwnerLocalIdForPreview) ||
+      null,
+    [customers, activeOwnerLocalIdForPreview]
+  );
+
+  const previewCustomerMongoId = previewOwner?.mongoId || "";
+
+  const pricingPreview = useMemo(
+    () =>
+      computeDraftPricing({
+        partsSubtotal: 0,
+        laborChargesOriginal: Number(laborCharges) || 0,
+        appliedRewards,
+      }),
+    [appliedRewards, laborCharges]
+  );
+
+  useEffect(() => {
+    setAppliedRewards([]);
+    setDraftSuppressedMilestones([]);
+    setLoyaltyPopupRewards([]);
+    setSelectedPopupRewardKey("");
+    setLoyaltyPopupOpen(false);
+  }, [previewCustomerMongoId]);
+
   useEffect(() => {
     if (!selectedVehicle) {
       setChangeOwner(false);
@@ -189,6 +273,11 @@ function JobCardNew() {
       setOwnerSearch("");
       setShowOwnerForm(false);
       setCurrentOwnerLocalId("");
+      setAppliedRewards([]);
+      setDraftSuppressedMilestones([]);
+      setLoyaltyPopupRewards([]);
+      setSelectedPopupRewardKey("");
+      setLoyaltyPopupOpen(false);
       return;
     }
     setChangeOwner(!currentOwnerId);
@@ -198,6 +287,11 @@ function JobCardNew() {
     setNewCustomerName("");
     setNewCustomerPhone("");
     setNewCustomerEmail("");
+    setAppliedRewards([]);
+    setDraftSuppressedMilestones([]);
+    setLoyaltyPopupRewards([]);
+    setSelectedPopupRewardKey("");
+    setLoyaltyPopupOpen(false);
   }, [currentOwnerId, selectedVehicle]);
 
   useEffect(() => {
@@ -337,6 +431,163 @@ function JobCardNew() {
       })
     );
   };
+
+  const normalizePreviewReward = (reward) => {
+    if (!reward || !reward.ruleId) return null;
+    const milestoneNumber =
+      reward.milestoneNumber === null ||
+      reward.milestoneNumber === undefined ||
+      reward.milestoneNumber === ""
+        ? null
+        : Number(reward.milestoneNumber);
+
+    const normalized = {
+      rewardId: reward.rewardId || reward._id || null,
+      ruleId: String(reward.ruleId),
+      ruleName: reward.ruleName || "Loyalty Reward",
+      rewardType: reward.rewardType || "",
+      rewardValue: Number(reward.rewardValue) || 0,
+      rewardDiscountMode: reward.rewardDiscountMode || null,
+      rewardDiscountValue:
+        reward.rewardDiscountValue !== undefined &&
+        reward.rewardDiscountValue !== null
+          ? Number(reward.rewardDiscountValue)
+          : null,
+      rewardDiscountCap:
+        reward.rewardDiscountCap !== undefined && reward.rewardDiscountCap !== null
+          ? Number(reward.rewardDiscountCap)
+          : null,
+      milestoneNumber:
+        Number.isFinite(milestoneNumber) && milestoneNumber > 0
+          ? milestoneNumber
+          : null,
+      suppressionKey:
+        reward.suppressionKey ||
+        `${String(reward.ruleId)}:${String(
+          Number.isFinite(milestoneNumber) && milestoneNumber > 0
+            ? milestoneNumber
+            : "legacy"
+        )}`,
+    };
+
+    return normalized;
+  };
+
+  const removeAppliedReward = (rewardKey) => {
+    setAppliedRewards((prev) =>
+      prev.filter((reward) => buildRewardKey(reward) !== rewardKey)
+    );
+  };
+
+  const handleApplyLoyaltyRewards = () => {
+    const selectedReward = loyaltyPopupRewards.find(
+      (reward) => reward.suppressionKey === selectedPopupRewardKey
+    );
+    if (!selectedReward) {
+      setLoyaltyPopupOpen(false);
+      setLoyaltyPopupRewards([]);
+      setSelectedPopupRewardKey("");
+      return;
+    }
+
+    setAppliedRewards([
+      {
+        rewardId: selectedReward.rewardId || null,
+        ruleId: selectedReward.ruleId,
+        ruleName: selectedReward.ruleName,
+        rewardType: selectedReward.rewardType,
+        rewardValue: selectedReward.rewardValue,
+        rewardDiscountMode: selectedReward.rewardDiscountMode ?? null,
+        rewardDiscountValue: selectedReward.rewardDiscountValue ?? null,
+        rewardDiscountCap: selectedReward.rewardDiscountCap ?? null,
+        milestoneNumber: selectedReward.milestoneNumber,
+      },
+    ]);
+
+    setDraftSuppressedMilestones((prev) => [
+      ...new Set([
+        ...prev,
+        selectedReward.suppressionKey,
+      ]),
+    ]);
+    setLoyaltyPopupOpen(false);
+    setLoyaltyPopupRewards([]);
+    setSelectedPopupRewardKey("");
+  };
+
+  const handleSkipLoyaltyPopup = () => {
+    setDraftSuppressedMilestones((prev) => [
+      ...new Set([
+        ...prev,
+        ...loyaltyPopupRewards.map((reward) => reward.suppressionKey),
+      ]),
+    ]);
+    setLoyaltyPopupOpen(false);
+    setLoyaltyPopupRewards([]);
+    setSelectedPopupRewardKey("");
+  };
+
+  useEffect(() => {
+    if (!previewCustomerMongoId || !selectedServiceSignature) {
+      setLoyaltyPopupOpen(false);
+      setLoyaltyPopupRewards([]);
+      setSelectedPopupRewardKey("");
+      setLoyaltyPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadLoyaltyPreview = async () => {
+      setLoyaltyPreviewLoading(true);
+      try {
+        const { data } = await api.get(
+          `/loyalty/customer/${previewCustomerMongoId}/job-card-preview`,
+          {
+            params: { serviceTypeIds: selectedServiceSignature },
+          }
+        );
+
+        if (cancelled) return;
+
+        const normalizedRewards = (data?.rewardsAvailable || [])
+          .map(normalizePreviewReward)
+          .filter(Boolean);
+
+        const unappliedRewards = normalizedRewards.filter((reward) => {
+          const key = buildRewardKey(reward);
+          return !appliedRewards.some(
+            (appliedReward) => buildRewardKey(appliedReward) === key
+          );
+        });
+
+        const unsuppressedRewards = unappliedRewards.filter(
+          (reward) => !draftSuppressedMilestones.includes(reward.suppressionKey)
+        );
+
+        if ((data?.shouldShowPopup || false) && unsuppressedRewards.length > 0) {
+          setLoyaltyPopupRewards(unsuppressedRewards);
+          setSelectedPopupRewardKey(unsuppressedRewards[0].suppressionKey);
+          setLoyaltyPopupOpen(true);
+        }
+      } catch (error) {
+        handleAuthRedirect(error.response?.status);
+      } finally {
+        if (!cancelled) {
+          setLoyaltyPreviewLoading(false);
+        }
+      }
+    };
+
+    loadLoyaltyPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    previewCustomerMongoId,
+    selectedServiceSignature,
+    appliedRewards,
+    draftSuppressedMilestones,
+  ]);
 
   const handleAuthRedirect = (status) => {
     if (status === 401 || status === 403) {
@@ -872,6 +1123,13 @@ function JobCardNew() {
         customerId: resolvedOwnerId,
         vehicleId,
         services: selectedServices,
+        appliedRewards: appliedRewards.slice(0, 1),
+        laborCharges: pricingPreview.laborChargesOriginal,
+        laborChargesOriginal: pricingPreview.laborChargesOriginal,
+        loyaltyLaborDiscount: pricingPreview.loyaltyLaborDiscount,
+        laborChargesNet: pricingPreview.laborChargesNet,
+        subtotalParts: pricingPreview.subtotalParts,
+        grandTotal: pricingPreview.grandTotal,
         notes: notes.trim(),
         status: "OPEN",
         createdAt: new Date().toISOString(),
@@ -1478,7 +1736,56 @@ function JobCardNew() {
                 onChange={(event) => setNotes(event.target.value)}
               />
             </div>
+
           </div>
+
+          <div className="job-card-loyalty">
+            <div className="job-card-card__head">
+              <div>
+                <h2>Loyalty Rewards</h2>
+                <p>Milestone rewards eligible for this draft visit.</p>
+              </div>
+            </div>
+
+            {loyaltyPreviewLoading ? (
+              <p className="job-card-muted">Checking loyalty milestones...</p>
+            ) : null}
+            {!previewCustomerMongoId ? (
+              <p className="job-card-muted">
+                Select a synced customer to check loyalty rewards.
+              </p>
+            ) : null}
+            {appliedRewards.length === 0 ? (
+              <p className="job-card-muted">No loyalty rewards selected yet.</p>
+            ) : (
+              <div className="job-card-loyalty__list">
+                {appliedRewards.map((reward) => {
+                  const rewardKey = buildRewardKey(reward);
+                  return (
+                    <div key={rewardKey} className="job-card-loyalty__item">
+                      <div>
+                        <strong>{reward.ruleName || "Loyalty Reward"}</strong>
+                        <p>
+                          {formatRewardSummary(reward)}{" "}
+                          {reward.milestoneNumber
+                            ? `(Milestone ${reward.milestoneNumber})`
+                            : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="job-card-button job-card-button--ghost"
+                        onClick={() => removeAppliedReward(rewardKey)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
         </section>
 
         <div className="job-card-actions">
@@ -1497,6 +1804,69 @@ function JobCardNew() {
             Create Job Card
           </button>
         </div>
+
+        {loyaltyPopupOpen ? (
+          <div className="loyalty-popup">
+            <div className="loyalty-popup__backdrop" />
+            <div className="loyalty-popup__panel" role="dialog" aria-modal="true">
+              <div className="loyalty-popup__head">
+                <h3>Loyalty Reward Available</h3>
+                <p>
+                  This visit hits a loyalty milestone. Select one reward to apply to
+                  this job card.
+                </p>
+              </div>
+              <div className="loyalty-popup__list">
+                {loyaltyPopupRewards.map((reward) => {
+                  const isSelected = selectedPopupRewardKey === reward.suppressionKey;
+                  return (
+                    <label
+                      key={reward.suppressionKey}
+                      className={`loyalty-popup__item ${
+                        isSelected ? "is-selected" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="new-jobcard-loyalty-reward"
+                        checked={isSelected}
+                        onChange={() =>
+                          setSelectedPopupRewardKey(reward.suppressionKey)
+                        }
+                      />
+                      <div>
+                        <strong>{reward.ruleName}</strong>
+                        <p>
+                          {formatRewardSummary(reward)}{" "}
+                          {reward.milestoneNumber
+                            ? `(Milestone ${reward.milestoneNumber})`
+                            : ""}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="loyalty-popup__actions">
+                <button
+                  type="button"
+                  className="job-card-button job-card-button--ghost"
+                  onClick={handleSkipLoyaltyPopup}
+                >
+                  Skip for Now
+                </button>
+                <button
+                  type="button"
+                  className="job-card-button job-card-button--primary"
+                  onClick={handleApplyLoyaltyRewards}
+                  disabled={!selectedPopupRewardKey}
+                >
+                  Apply Reward
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </form>
     </div>
   );

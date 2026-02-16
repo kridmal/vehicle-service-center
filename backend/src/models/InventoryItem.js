@@ -15,6 +15,7 @@ const inventoryItemSchema = new mongoose.Schema(
     },
     minStock: { type: Number, default: 0, min: 0 },
     costPrice: { type: Number, default: 0, min: 0 },
+    lastPurchaseCost: { type: Number, default: 0, min: 0 },
     sellingPrice: {
       type: Number,
       default: 0,
@@ -27,6 +28,19 @@ const inventoryItemSchema = new mongoose.Schema(
       },
     },
     notes: { type: String, trim: true },
+    discountEnabled: { type: Boolean, default: false },
+    discountType: {
+      type: String,
+      enum: ["PERCENT", "AMOUNT"],
+      default: null,
+    },
+    discountValue: { type: Number, default: 0, min: 0 },
+    discountStartAt: { type: Date, default: null },
+    discountEndAt: { type: Date, default: null },
+    minQtyForDiscount: { type: Number, min: 1, default: 1 },
+    maxDiscountCap: { type: Number, min: 0, default: null },
+    discountNote: { type: String, trim: true, default: "" },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
   { timestamps: true }
 );

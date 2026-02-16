@@ -179,9 +179,14 @@
   font-size: 14px;
 }
 
+.invoice-table {
+  overflow-x: auto;
+}
+
 .invoice-table table {
   width: 100%;
   border-collapse: collapse;
+  min-width: 920px;
 }
 
 .invoice-table th,

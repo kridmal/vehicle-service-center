@@ -79,6 +79,26 @@
   color: #ffffff;
 }
 
+.sidebar-link--with-icon {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.sidebar-link__icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.sidebar-link__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
 .app-main {
   flex: 1;
   display: flex;

@@ -1,5 +1,21 @@
 import { NavLink } from "react-router-dom";
 
+function CartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3 4h2l2.2 10.1a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 2-1.5L22 7H7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="19" r="1.6" fill="currentColor" />
+      <circle cx="18" cy="19" r="1.6" fill="currentColor" />
+    </svg>
+  );
+}
+
 function Sidebar({ isOwner, permissions = {} }) {
   const can = (permission) => isOwner || Boolean(permissions?.[permission]);
   return (
@@ -20,6 +36,19 @@ function Sidebar({ isOwner, permissions = {} }) {
             }
           >
             Dashboard
+          </NavLink>
+        ) : null}
+        {can("manageSales") ? (
+          <NavLink
+            to="/sales"
+            className={({ isActive }) =>
+              `sidebar-link sidebar-link--with-icon${isActive ? " active" : ""}`
+            }
+          >
+            <span className="sidebar-link__icon">
+              <CartIcon />
+            </span>
+            <span className="sidebar-link__text">Sales</span>
           </NavLink>
         ) : null}
         <NavLink
@@ -88,6 +117,16 @@ function Sidebar({ isOwner, permissions = {} }) {
             }
           >
             Inventory
+          </NavLink>
+        ) : null}
+        {can("manageInventory") ? (
+          <NavLink
+            to="/purchases"
+            className={({ isActive }) =>
+              `sidebar-link${isActive ? " active" : ""}`
+            }
+          >
+            Purchases
           </NavLink>
         ) : null}
         {can("manageEmployees") ? (

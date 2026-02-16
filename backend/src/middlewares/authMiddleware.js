@@ -1,5 +1,7 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import Role from "../models/Role.js";
+import { canAccessSales, mergePermissions } from "../utils/accessControl.js";
 
 const getTokenFromHeader = (req) => {
   const auth = req.headers.authorization || "";
@@ -47,4 +49,44 @@ export const requireOwner = (req, res, next) => {
     return res.status(403).json({ message: "Forbidden" });
   }
   return next();
+};
+
+export const requireSalesAccess = async (req, res, next) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Not authorized" });
+    }
+
+    const user = await User.findById(req.user.id).select("role roleId permissions");
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    let role = null;
+    if (user.roleId) {
+      role = await Role.findById(user.roleId).select("roleName category permissions");
+    }
+
+    const permissions = mergePermissions(role?.permissions, user.permissions);
+    const hasSalesAccess = canAccessSales({
+      role: user.role,
+      roleName: role?.roleName,
+      roleCategory: role?.category,
+      permissions,
+    });
+
+    if (!hasSalesAccess) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    req.userAccess = {
+      roleName: role?.roleName || null,
+      roleCategory: role?.category || null,
+      permissions,
+    };
+
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 };
