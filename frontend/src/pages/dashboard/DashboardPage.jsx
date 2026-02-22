@@ -7,7 +7,6 @@ import "./DashboardPage.css";
 function DashboardPage() {
   const [invoices] = useLocalStorageState("ksc_invoices", []);
   const [jobCards] = useLocalStorageState("ksc_job_cards", []);
-  const [inventory] = useLocalStorageState("ksc_inventory", []);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState(false);
@@ -49,10 +48,9 @@ function DashboardPage() {
     { OPEN: 0, IN_PROGRESS: 0, COMPLETED: 0 }
   );
 
-  const lowStockItems = inventory
-    .filter((item) => Number(item.quantity) <= Number(item.minStock))
-    .sort((a, b) => Number(a.quantity) - Number(b.quantity))
-    .slice(0, 5);
+  const lowStockItems = Array.isArray(summary?.lowStockItems)
+    ? summary.lowStockItems
+    : [];
 
   const formatKpi = (value) => {
     if (summaryError) return "-";
@@ -224,15 +222,24 @@ function DashboardPage() {
             <h2>Low Stock</h2>
             <span className="summary-pill warning">Attention</span>
           </div>
-          {lowStockItems.length === 0 ? (
+          {summaryLoading ? (
+            <div className="low-stock__ok">Loading stock alerts...</div>
+          ) : summaryError ? (
+            <div className="low-stock__ok">Unable to load stock alerts</div>
+          ) : lowStockItems.length === 0 ? (
             <div className="low-stock__ok">All items in stock</div>
           ) : (
             <ul className="low-stock__list">
               {lowStockItems.map((item) => (
-                <li className="low-stock__item" key={item.id}>
+                <li
+                  className="low-stock__item"
+                  key={item._id || item.id || item.sku || item.itemName}
+                >
                   <div>
                     <p className="low-stock__name">{item.itemName || item.name}</p>
-                    <p className="low-stock__meta">{item.unit} remaining</p>
+                    <p className="low-stock__meta">
+                      Min {item.minStock || 0} {item.unit} | Remaining {item.quantity || 0} {item.unit}
+                    </p>
                   </div>
                   <span className="low-stock__qty">{item.quantity}</span>
                 </li>

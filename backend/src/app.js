@@ -29,6 +29,7 @@ import staffRoutes from "./routes/staffRoutes.js";
 import vehicleMasterRoutes from "./routes/vehicleMasterRoutes.js";
 import vehicleRoutes from "./routes/vehicleRoutes.js";
 import workCalendarRoutes from "./routes/workCalendarRoutes.js";
+import workCalendarDayRoutes from "./routes/workCalendarDayRoutes.js";
 import workerRoutes from "./routes/workerRoutes.js";
 import { errorHandler, notFound } from "./middlewares/errorMiddleware.js";
 
@@ -70,6 +71,7 @@ app.use("/api/staff", staffRoutes);
 app.use("/api/vehicle-master", vehicleMasterRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/work-calendars", workCalendarRoutes);
+app.use("/api/work-calendar", workCalendarDayRoutes);
 app.use("/api/workers", workerRoutes);
 
 app.use(notFound);

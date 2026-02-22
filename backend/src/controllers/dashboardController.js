@@ -3,6 +3,7 @@ import JobCard from "../models/JobCard.js";
 import Attendance from "../models/Attendance.js";
 import LeaveRequest from "../models/LeaveRequest.js";
 import Payroll from "../models/Payroll.js";
+import InventoryItem from "../models/InventoryItem.js";
 
 const startOfDay = (date) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
@@ -33,6 +34,7 @@ export const getDashboardSummary = async (req, res, next) => {
       todayAttendanceAgg,
       pendingLeaveCount,
       payrollMonthStatus,
+      inventoryRows,
     ] = await Promise.all([
         Invoice.aggregate([
           {
@@ -94,6 +96,7 @@ export const getDashboardSummary = async (req, res, next) => {
           { $match: { month } },
           { $group: { _id: "$status", count: { $sum: 1 } } },
         ]),
+        InventoryItem.find().select("itemName quantity minStock unit sku").lean(),
       ]);
 
     const invoiceStatusCounts = invoiceStatusAgg.reduce(
@@ -127,6 +130,13 @@ export const getDashboardSummary = async (req, res, next) => {
       return acc;
     }, {});
 
+    const lowStockItems = (inventoryRows || [])
+      .filter(
+        (item) => Number(item?.quantity || 0) <= Number(item?.minStock || 0)
+      )
+      .sort((a, b) => Number(a.quantity || 0) - Number(b.quantity || 0))
+      .slice(0, 5);
+
     return res.json({
       revenueToday: revenueTodayAgg[0]?.total || 0,
       revenueThisWeek: revenueWeekAgg[0]?.total || 0,
@@ -137,6 +147,7 @@ export const getDashboardSummary = async (req, res, next) => {
       todayAttendance,
       pendingLeaveRequests: pendingLeaveCount,
       payrollCurrentMonthStatus: payrollStatus,
+      lowStockItems,
     });
   } catch (error) {
     return next(error);

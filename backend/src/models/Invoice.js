@@ -39,6 +39,29 @@ const invoiceAppliedRewardSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const invoiceTaskSchema = new mongoose.Schema(
+  {
+    taskId: { type: String, trim: true, default: null },
+    taskName: { type: String, trim: true },
+    title: { type: String, trim: true },
+    isRequired: { type: Boolean, default: false },
+    completed: { type: Boolean, default: false },
+    laborHours: { type: Number, min: 0, default: 0 },
+    laborCharge: { type: Number, min: 0, default: 0 },
+    isBillable: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const invoiceServiceSchema = new mongoose.Schema(
+  {
+    serviceType: { type: String, trim: true },
+    serviceName: { type: String, trim: true },
+    tasks: { type: [invoiceTaskSchema], default: [] },
+  },
+  { _id: false }
+);
+
 const invoiceSchema = new mongoose.Schema(
   {
     invoiceNumber: { type: String, required: true, unique: true, trim: true },
@@ -67,6 +90,7 @@ const invoiceSchema = new mongoose.Schema(
     vehicleModel: { type: String, trim: true },
     items: { type: [invoicePartSchema], default: [] },
     partsUsed: { type: [invoicePartSchema], default: [] },
+    jobCardServices: { type: [invoiceServiceSchema], default: [] },
     subtotalPartsOriginal: { type: Number, min: 0, default: 0 },
     partsDiscountTotal: { type: Number, min: 0, default: 0 },
     subtotalParts: { type: Number, min: 0, default: 0 },

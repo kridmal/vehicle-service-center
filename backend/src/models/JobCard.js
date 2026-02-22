@@ -16,9 +16,14 @@ const partUsageSchema = new mongoose.Schema(
 
 const jobTaskSchema = new mongoose.Schema(
   {
+    taskId: { type: String, trim: true, default: null },
+    taskName: { type: String, trim: true },
     title: { type: String, required: true, trim: true },
     isRequired: { type: Boolean, default: false },
     completed: { type: Boolean, default: false },
+    laborHours: { type: Number, min: 0, default: 0 },
+    laborCharge: { type: Number, min: 0, default: 0 },
+    isBillable: { type: Boolean, default: true },
   },
   { _id: false }
 );
@@ -68,6 +73,7 @@ const jobCardSchema = new mongoose.Schema(
     ownerId: { type: String, trim: true },
     customerId: { type: String, required: true, trim: true },
     vehicleId: { type: String, required: true, trim: true },
+    serviceTypeIds: { type: [String], default: [] },
     services: { type: [jobServiceSchema], default: [] },
     status: {
       type: String,

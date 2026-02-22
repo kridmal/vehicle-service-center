@@ -13,6 +13,18 @@ const STATUS_COLOR = {
   off: "#94a3b8",
 };
 
+const WEEKDAY_OPTIONS = [
+  { code: "MON", label: "Mon" },
+  { code: "TUE", label: "Tue" },
+  { code: "WED", label: "Wed" },
+  { code: "THU", label: "Thu" },
+  { code: "FRI", label: "Fri" },
+  { code: "SAT", label: "Sat" },
+  { code: "SUN", label: "Sun" },
+];
+
+const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 const toMonthValue = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -51,10 +63,27 @@ function Attendance() {
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [rows, setRows] = useState([]);
-  const [monthRows, setMonthRows] = useState([]);
   const [dailyRecords, setDailyRecords] = useState([]);
-  const [calendarConfig, setCalendarConfig] = useState(null);
-  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [dailyCalendarDay, setDailyCalendarDay] = useState(null);
+  const [dailyCanMark, setDailyCanMark] = useState(true);
+  const [dailyCalendarMissing, setDailyCalendarMissing] = useState(false);
+  const [dailyCalendarMessage, setDailyCalendarMessage] = useState("");
+  const [reportRows, setReportRows] = useState([]);
+  const [reportCutoffDate, setReportCutoffDate] = useState("");
+  const [reportFutureMonth, setReportFutureMonth] = useState(false);
+  const [reportServerMessage, setReportServerMessage] = useState("");
+  const [workCalendarMonth, setWorkCalendarMonth] = useState(toMonthValue(new Date()));
+  const [workPreset, setWorkPreset] = useState("SAT_SUN");
+  const [customOffDays, setCustomOffDays] = useState(["SAT", "SUN"]);
+  const [workCalendarRows, setWorkCalendarRows] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [editCalendarDay, setEditCalendarDay] = useState(null);
+  const [calendarDayForm, setCalendarDayForm] = useState({
+    isWorkingDay: true,
+    offType: "PUBLIC",
+    offName: "",
+    notes: "",
+  });
   const [settings, setSettings] = useState({
     lateThresholdTime: "09:00",
     halfDayMinimumHours: 4,
@@ -62,8 +91,6 @@ function Attendance() {
   });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-
-  const selectedMonthForDate = selectedDate.slice(0, 7);
 
   const loadBase = async () => {
     const [staffRes, depRes, settingsRes] = await Promise.all([
@@ -77,26 +104,38 @@ function Attendance() {
   };
 
   const loadDaily = async () => {
-    const { data } = await api.get("/attendance", {
+    const { data } = await api.get("/attendance/day", {
       params: { date: selectedDate, department: departmentFilter || undefined },
     });
     setRows(Array.isArray(data?.rows) ? data.rows : []);
+    setDailyCalendarDay(data?.calendarDay || null);
+    setDailyCanMark(Boolean(data?.canMark));
+    setDailyCalendarMissing(Boolean(data?.calendarMissing));
+    setDailyCalendarMessage(data?.calendarMessage || "");
   };
 
-  const loadMonthly = async () => {
+  const loadMonthlyGrid = async () => {
     const { data } = await api.get("/attendance", {
       params: {
         month: Number(selectedMonth.slice(5, 7)),
         year: Number(selectedMonth.slice(0, 4)),
       },
     });
-    setMonthRows(Array.isArray(data?.records) ? data.records : []);
     setDailyRecords(Array.isArray(data?.dailyRecords) ? data.dailyRecords : []);
   };
 
-  const loadCalendarConfig = async (month = selectedMonthForDate) => {
-    const { data } = await api.get(`/work-calendars/${month}`);
-    setCalendarConfig(data);
+  const loadMonthlyReport = async () => {
+    const { data } = await api.get("/attendance/report/month", {
+      params: {
+        month: Number(selectedMonth.slice(5, 7)),
+        year: Number(selectedMonth.slice(0, 4)),
+        department: departmentFilter || undefined,
+      },
+    });
+    setReportRows(Array.isArray(data?.records) ? data.records : []);
+    setReportCutoffDate(data?.cutoffDate || "");
+    setReportFutureMonth(Boolean(data?.isFutureMonth));
+    setReportServerMessage(data?.message || "");
   };
 
   useEffect(() => {
@@ -105,12 +144,19 @@ function Attendance() {
 
   useEffect(() => {
     loadDaily().catch(() => {});
-    loadCalendarConfig().catch(() => {});
   }, [selectedDate, departmentFilter]);
 
   useEffect(() => {
-    loadMonthly().catch(() => {});
+    loadMonthlyGrid().catch(() => {});
   }, [selectedMonth]);
+
+  useEffect(() => {
+    loadMonthlyReport().catch(() => {});
+  }, [selectedMonth, departmentFilter]);
+
+  useEffect(() => {
+    loadWorkCalendarMonth(workCalendarMonth).catch(() => {});
+  }, [workCalendarMonth]);
 
   const updateRow = (employeeId, key, value) => {
     setRows((prev) =>
@@ -123,10 +169,11 @@ function Attendance() {
   };
 
   const saveDaily = async () => {
+    if (!dailyCanMark) return;
     setError("");
     setMessage("");
     try {
-      await api.post("/attendance", {
+      await api.post("/attendance/day", {
         date: selectedDate,
         entries: rows.map((row) => ({
           staffId: row.employeeId,
@@ -138,28 +185,84 @@ function Attendance() {
       });
       setMessage("Attendance saved.");
       await loadDaily();
-      await loadMonthly();
+      await loadMonthlyGrid();
+      await loadMonthlyReport();
     } catch (err) {
       setError(err.response?.data?.message || "Unable to save attendance.");
     }
   };
 
-  const openCalendarModal = async () => {
-    await loadCalendarConfig(selectedMonthForDate);
-    setCalendarOpen(true);
+  const parseMonthValue = (monthValue) => ({
+    year: Number(monthValue.slice(0, 4)),
+    month: Number(monthValue.slice(5, 7)),
+  });
+
+  const loadWorkCalendarMonth = async (monthValue = workCalendarMonth) => {
+    const monthInfo = parseMonthValue(monthValue);
+    const { data } = await api.get("/work-calendar", { params: monthInfo });
+    setWorkCalendarRows(Array.isArray(data) ? data : []);
   };
 
-  const saveCalendar = async () => {
-    if (!calendarConfig?.month) return;
+  const generateCalendar = async () => {
+    const confirmOverwrite = window.confirm(
+      "This will reset and overwrite all calendar settings for this month. Continue?"
+    );
+    if (!confirmOverwrite) return;
+    if (workPreset === "CUSTOM" && customOffDays.length === 0) {
+      setError("Select at least one custom off day.");
+      setMessage("");
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setCalendarLoading(true);
+    try {
+      const monthInfo = parseMonthValue(workCalendarMonth);
+      const payload = {
+        ...monthInfo,
+        preset: workPreset,
+      };
+      if (workPreset === "CUSTOM") {
+        payload.customOffDays = customOffDays;
+      }
+      await api.post("/work-calendar/generate", payload);
+      setMessage("Work calendar generated.");
+      await loadWorkCalendarMonth(workCalendarMonth);
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to generate work calendar.");
+    } finally {
+      setCalendarLoading(false);
+    }
+  };
+
+  const openEditCalendarDay = (day) => {
+    setEditCalendarDay(day);
+    setCalendarDayForm({
+      isWorkingDay: Boolean(day?.isWorkingDay),
+      offType: day?.offType || "PUBLIC",
+      offName: day?.offName || "",
+      notes: day?.notes || "",
+    });
+  };
+
+  const saveCalendarDay = async () => {
+    if (!editCalendarDay?.date) return;
     setError("");
     setMessage("");
     try {
-      await api.put(`/work-calendars/${calendarConfig.month}`, calendarConfig);
-      setMessage("Work Calendar saved.");
-      setCalendarOpen(false);
-      await loadCalendarConfig(selectedMonthForDate);
+      await api.put("/work-calendar/day", {
+        date: editCalendarDay.date,
+        isWorkingDay: calendarDayForm.isWorkingDay,
+        offType: calendarDayForm.isWorkingDay ? null : calendarDayForm.offType,
+        offName: calendarDayForm.isWorkingDay ? "" : calendarDayForm.offName,
+        notes: calendarDayForm.notes,
+      });
+      setMessage("Calendar day updated.");
+      setEditCalendarDay(null);
+      await loadWorkCalendarMonth(workCalendarMonth);
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to save calendar.");
+      setError(err.response?.data?.message || "Unable to update calendar day.");
     }
   };
 
@@ -179,38 +282,33 @@ function Attendance() {
     });
   }, [staff, departmentFilter]);
 
-  const reportRows = useMemo(() => {
-    return monthRows
-      .filter((row) => (selectedEmployeeId ? String(row.staffId) === selectedEmployeeId : true))
-      .map((row) => {
-        const netPayPreview = Number(row.netSalary || 0);
-        return {
-          employeeName: row.staffSnapshot?.name || row.employeeName || "-",
-          present: row.presentDays || 0,
-          absent: row.absentDays || 0,
-          leave: row.approvedLeaveDays || 0,
-          late: row.lateDays || 0,
-          half: row.halfDays || 0,
-          lop: row.lopDays || 0,
-          netPayPreview,
-        };
-      });
-  }, [monthRows, selectedEmployeeId]);
+  const filteredReportRows = useMemo(() => {
+    return (reportRows || []).filter((row) =>
+      selectedEmployeeId ? String(row.staffId) === selectedEmployeeId : true
+    );
+  }, [reportRows, selectedEmployeeId]);
 
   const exportSummary = () => {
     csvDownload(
       `attendance-summary-${selectedMonth}.csv`,
       [
-        ["Employee", "Present", "Absent", "Leave", "Late", "Half Day", "LOP", "Net Pay Preview"],
-        ...reportRows.map((r) => [
-          r.employeeName,
-          r.present,
-          r.absent,
-          r.leave,
-          r.late,
-          r.half,
-          r.lop,
-          r.netPayPreview,
+        [
+          "Employee",
+          "Working Days (Evaluated)",
+          "Present",
+          "Absent",
+          "Leave",
+          "Unmarked",
+          "LOP Days",
+        ],
+        ...filteredReportRows.map((r) => [
+          r.staffName,
+          r.workingDaysEvaluated,
+          r.presentCount,
+          r.absentCount,
+          r.leaveCount,
+          r.unmarkedCount,
+          r.lopDays,
         ]),
       ]
     );
@@ -219,21 +317,6 @@ function Attendance() {
   const printEmployeeReport = () => {
     window.print();
   };
-
-  const isHolidayOrOff = useMemo(() => {
-    if (!calendarConfig) return false;
-    const dayOfWeek = new Date(selectedDate).getDay();
-    const dateStr = selectedDate;
-    if ((calendarConfig.holidayDates || []).includes(dateStr)) return true;
-    if ((calendarConfig.customOffDates || []).includes(dateStr)) return true;
-    if (calendarConfig.weeklyOffPattern === "sunday") return dayOfWeek === 0;
-    if (calendarConfig.weeklyOffPattern === "saturday-sunday") return dayOfWeek === 0 || dayOfWeek === 6;
-    if (calendarConfig.weeklyOffPattern === "custom") {
-      const map = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-      return (calendarConfig.customWeeklyOffDays || []).includes(map[dayOfWeek]);
-    }
-    return false;
-  }, [calendarConfig, selectedDate]);
 
   return (
     <div className="attendance-page">
@@ -257,7 +340,7 @@ function Attendance() {
           <button type="button" className="attendance-action--secondary attendance-action" onClick={() => setTab("reports")}>
             Reports
           </button>
-          <button type="button" className="attendance-action" onClick={openCalendarModal}>
+          <button type="button" className="attendance-action" onClick={() => setTab("work-calendar")}>
             Work Calendar
           </button>
         </div>
@@ -268,7 +351,13 @@ function Attendance() {
           <section className="attendance-card">
             <div className="attendance-card__head">
               <h2>Daily Marking</h2>
-              <p>{isHolidayOrOff ? "Selected date is holiday/off day." : "Regular working day."}</p>
+              <p>
+                {dailyCalendarMissing
+                  ? dailyCalendarMessage
+                  : dailyCanMark
+                  ? "Regular working day."
+                  : `Holiday/Off day: ${dailyCalendarDay?.offName || dailyCalendarDay?.offType || "Off Day"}`}
+              </p>
             </div>
             <div className="attendance-filters">
               <div className="attendance-field">
@@ -285,13 +374,19 @@ function Attendance() {
                 </select>
               </div>
             </div>
+            {!dailyCanMark ? <p className="attendance-note warning">{dailyCalendarMessage}</p> : null}
           </section>
           <section className="attendance-card">
             <div className="attendance-actions">
-              <button type="button" className="attendance-action--secondary attendance-action" onClick={markAllPresent}>
+              <button
+                type="button"
+                className="attendance-action--secondary attendance-action"
+                onClick={markAllPresent}
+                disabled={!dailyCanMark}
+              >
                 Mark All Present
               </button>
-              <button type="button" className="attendance-action" onClick={saveDaily}>
+              <button type="button" className="attendance-action" onClick={saveDaily} disabled={!dailyCanMark}>
                 Save
               </button>
             </div>
@@ -320,7 +415,7 @@ function Attendance() {
                           className="attendance-input"
                           value={row.status}
                           onChange={(e) => updateRow(row.employeeId, "status", e.target.value)}
-                          disabled={row.isLocked}
+                          disabled={row.isLocked || !dailyCanMark}
                         >
                           {STATUS_OPTIONS.map((status) => (
                             <option key={status} value={status}>{status}</option>
@@ -333,7 +428,7 @@ function Attendance() {
                           type="time"
                           value={row.checkInTime || ""}
                           onChange={(e) => updateRow(row.employeeId, "checkInTime", e.target.value)}
-                          disabled={row.isLocked}
+                          disabled={row.isLocked || !dailyCanMark}
                         />
                       </td>
                       <td>
@@ -342,7 +437,7 @@ function Attendance() {
                           type="time"
                           value={row.checkOutTime || ""}
                           onChange={(e) => updateRow(row.employeeId, "checkOutTime", e.target.value)}
-                          disabled={row.isLocked}
+                          disabled={row.isLocked || !dailyCanMark}
                         />
                       </td>
                       <td>
@@ -350,7 +445,7 @@ function Attendance() {
                           className="attendance-input"
                           value={row.notes || ""}
                           onChange={(e) => updateRow(row.employeeId, "notes", e.target.value)}
-                          disabled={row.isLocked}
+                          disabled={row.isLocked || !dailyCanMark}
                         />
                       </td>
                       <td>{row.isLocked ? "Locked - Payroll approved" : "Editable"}</td>
@@ -420,14 +515,19 @@ function Attendance() {
                               title={status}
                               disabled={record?.isLocked}
                               onClick={async () => {
-                                const currentIndex = STATUS_OPTIONS.indexOf(status);
-                                const nextStatus = STATUS_OPTIONS[(currentIndex + 1) % STATUS_OPTIONS.length];
-                                await api.post("/attendance", {
-                                  date,
-                                  staffId: employeeId,
-                                  status: nextStatus,
-                                });
-                                await loadMonthly();
+                                try {
+                                  const currentIndex = STATUS_OPTIONS.indexOf(status);
+                                  const nextStatus = STATUS_OPTIONS[(currentIndex + 1) % STATUS_OPTIONS.length];
+                                  await api.post("/attendance", {
+                                    date,
+                                    staffId: employeeId,
+                                    status: nextStatus,
+                                  });
+                                  await loadMonthlyGrid();
+                                  await loadMonthlyReport();
+                                } catch (err) {
+                                  setError(err.response?.data?.message || "Unable to update attendance.");
+                                }
                               }}
                             >
                               {status[0].toUpperCase()}
@@ -454,7 +554,7 @@ function Attendance() {
           <section className="attendance-card">
             <div className="attendance-card__head">
               <h2>Attendance Reports</h2>
-              <p>Employee-wise and summary views with export.</p>
+              <p>Calendar-based monthly summary (evaluated working days only).</p>
             </div>
             <div className="attendance-filters">
               <div className="attendance-field">
@@ -480,6 +580,12 @@ function Attendance() {
                 </select>
               </div>
             </div>
+            {reportCutoffDate ? (
+              <p className="attendance-note">Evaluated up to: {reportCutoffDate}</p>
+            ) : null}
+            {reportServerMessage ? (
+              <p className="attendance-note warning">{reportServerMessage}</p>
+            ) : null}
             <div className="attendance-actions" style={{ marginTop: "12px" }}>
               <button type="button" className="attendance-action--secondary attendance-action" onClick={printEmployeeReport}>
                 Export Employee PDF
@@ -494,31 +600,29 @@ function Attendance() {
               <table className="attendance-table">
                 <thead>
                   <tr>
-                    <th>Employee</th>
+                    <th>Staff</th>
+                    <th>Working Days (Evaluated)</th>
                     <th>Present</th>
                     <th>Absent</th>
                     <th>Leave</th>
-                    <th>Late</th>
-                    <th>Half Day</th>
-                    <th>LOP</th>
-                    <th>Net Pay Preview</th>
+                    <th>Unmarked</th>
+                    <th>LOP Days</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {reportRows.map((row, index) => (
-                    <tr key={`${row.employeeName}-${index}`}>
-                      <td>{row.employeeName}</td>
-                      <td>{row.present}</td>
-                      <td>{row.absent}</td>
-                      <td>{row.leave}</td>
-                      <td>{row.late}</td>
-                      <td>{row.half}</td>
-                      <td>{row.lop}</td>
-                      <td>{Number(row.netPayPreview || 0).toFixed(2)}</td>
+                  {filteredReportRows.map((row) => (
+                    <tr key={row.staffId}>
+                      <td>{row.staffName}</td>
+                      <td>{row.workingDaysEvaluated}</td>
+                      <td>{row.presentCount}</td>
+                      <td>{row.absentCount}</td>
+                      <td>{row.leaveCount}</td>
+                      <td>{row.unmarkedCount}</td>
+                      <td>{row.lopDays}</td>
                     </tr>
                   ))}
-                  {reportRows.length === 0 ? (
-                    <tr><td colSpan={8}>No data for selected filters.</td></tr>
+                  {filteredReportRows.length === 0 ? (
+                    <tr><td colSpan={7}>{reportFutureMonth ? "Future month selected." : "No data for selected filters."}</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -527,85 +631,182 @@ function Attendance() {
         </>
       ) : null}
 
-      {calendarOpen && calendarConfig ? (
+      {tab === "work-calendar" ? (
         <section className="attendance-card">
           <div className="attendance-card__head">
-            <h2>Work Calendar - {calendarConfig.month}</h2>
+            <h2>Work Calendar</h2>
+            <p>Generate and maintain company-wide working/off day setup by month.</p>
           </div>
           <div className="attendance-filters">
             <div className="attendance-field">
               <label>Month</label>
-              <input type="month" value={calendarConfig.month} onChange={(e) => setCalendarConfig((p) => ({ ...p, month: e.target.value }))} />
+              <input
+                type="month"
+                value={workCalendarMonth}
+                onChange={(e) => setWorkCalendarMonth(e.target.value)}
+              />
             </div>
             <div className="attendance-field">
-              <label>Total Days</label>
-              <input type="number" min="0" value={calendarConfig.totalDays || 0} onChange={(e) => setCalendarConfig((p) => ({ ...p, totalDays: Number(e.target.value || 0) }))} />
-            </div>
-            <div className="attendance-field">
-              <label>Weekly Off Pattern</label>
-              <select value={calendarConfig.weeklyOffPattern || "sunday"} onChange={(e) => setCalendarConfig((p) => ({ ...p, weeklyOffPattern: e.target.value }))}>
-                <option value="none">None</option>
-                <option value="sunday">Sunday</option>
-                <option value="saturday-sunday">Saturday-Sunday</option>
-                <option value="custom">Custom</option>
+              <label>Preset</label>
+              <select value={workPreset} onChange={(e) => setWorkPreset(e.target.value)}>
+                <option value="SUN_ONLY">Sunday Off</option>
+                <option value="SAT_SUN">Saturday + Sunday Off</option>
+                <option value="CUSTOM">Custom</option>
               </select>
             </div>
-            <div className="attendance-field">
-              <label>Calculated Working Days</label>
-              <input value={calendarConfig.calculatedWorkingDays || 0} readOnly />
-            </div>
-            <div className="attendance-field">
-              <label>Working Days Override</label>
-              <input type="number" min="0" value={calendarConfig.workingDaysOverride || 0} onChange={(e) => setCalendarConfig((p) => ({ ...p, workingDaysOverride: Number(e.target.value || 0) }))} />
-            </div>
-            <div className="attendance-field">
-              <label>Effective Working Days</label>
-              <input value={calendarConfig.effectiveWorkingDays || 0} readOnly />
-            </div>
-            <div className="attendance-field">
-              <label>Custom Weekly Off Days (comma)</label>
-              <input
-                value={(calendarConfig.customWeeklyOffDays || []).join(",")}
-                onChange={(e) =>
-                  setCalendarConfig((p) => ({
-                    ...p,
-                    customWeeklyOffDays: e.target.value.split(",").map((v) => v.trim().toLowerCase()).filter(Boolean),
-                  }))
-                }
-              />
-            </div>
-            <div className="attendance-field">
-              <label>Custom Off Dates (comma YYYY-MM-DD)</label>
-              <input
-                value={(calendarConfig.customOffDates || []).join(",")}
-                onChange={(e) =>
-                  setCalendarConfig((p) => ({
-                    ...p,
-                    customOffDates: e.target.value.split(",").map((v) => v.trim()).filter(Boolean),
-                  }))
-                }
-              />
-            </div>
-            <div className="attendance-field">
-              <label>Holiday Dates (comma YYYY-MM-DD)</label>
-              <input
-                value={(calendarConfig.holidayDates || []).join(",")}
-                onChange={(e) =>
-                  setCalendarConfig((p) => ({
-                    ...p,
-                    holidayDates: e.target.value.split(",").map((v) => v.trim()).filter(Boolean),
-                  }))
-                }
-              />
-            </div>
           </div>
+          {workPreset === "CUSTOM" ? (
+            <div className="attendance-calendar-weekdays">
+              {WEEKDAY_OPTIONS.map((entry) => (
+                <label key={entry.code} className="attendance-calendar-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={customOffDays.includes(entry.code)}
+                    onChange={() => {
+                      setCustomOffDays((prev) =>
+                        prev.includes(entry.code)
+                          ? prev.filter((item) => item !== entry.code)
+                          : [...prev, entry.code]
+                      );
+                    }}
+                  />
+                  {entry.label}
+                </label>
+              ))}
+            </div>
+          ) : null}
           <div className="attendance-actions" style={{ marginTop: "12px" }}>
-            <button type="button" className="attendance-action--secondary attendance-action" onClick={() => setCalendarOpen(false)}>
-              Close
+            <button
+              type="button"
+              className="attendance-action"
+              onClick={generateCalendar}
+              disabled={calendarLoading}
+            >
+              Generate Calendar
             </button>
-            <button type="button" className="attendance-action" onClick={saveCalendar}>
-              Save Calendar
-            </button>
+          </div>
+
+          <div className="attendance-table-wrapper">
+            <table className="attendance-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Day</th>
+                  <th>Status</th>
+                  <th>Off Type</th>
+                  <th>Off Name</th>
+                  <th>Notes</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workCalendarRows.map((row) => (
+                  <tr key={row.date}>
+                    <td>{row.date}</td>
+                    <td>{DAY_LABELS[row.dayOfWeek] || "-"}</td>
+                    <td>
+                      <span className={`attendance-pill${row.isWorkingDay ? " light" : ""}`}>
+                        {row.isWorkingDay ? "Working" : "Off"}
+                      </span>
+                    </td>
+                    <td>{row.offType || "-"}</td>
+                    <td>{row.offName || "-"}</td>
+                    <td>{row.notes || "-"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="attendance-action attendance-action--secondary"
+                        onClick={() => openEditCalendarDay(row)}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {workCalendarRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7}>No calendar generated for selected month.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {editCalendarDay ? (
+        <section className="attendance-modal-backdrop">
+          <div className="attendance-modal">
+            <div className="attendance-card__head">
+              <h2>Edit Calendar Day</h2>
+              <p>{editCalendarDay.date}</p>
+            </div>
+            <div className="attendance-filters">
+              <div className="attendance-field">
+                <label>Status</label>
+                <select
+                  value={calendarDayForm.isWorkingDay ? "working" : "off"}
+                  onChange={(e) =>
+                    setCalendarDayForm((prev) => ({
+                      ...prev,
+                      isWorkingDay: e.target.value === "working",
+                    }))
+                  }
+                >
+                  <option value="working">Working Day</option>
+                  <option value="off">Off Day</option>
+                </select>
+              </div>
+              {!calendarDayForm.isWorkingDay ? (
+                <>
+                  <div className="attendance-field">
+                    <label>Off Type</label>
+                    <select
+                      value={calendarDayForm.offType}
+                      onChange={(e) =>
+                        setCalendarDayForm((prev) => ({ ...prev, offType: e.target.value }))
+                      }
+                    >
+                      <option value="PUBLIC">PUBLIC</option>
+                      <option value="CUSTOM">CUSTOM</option>
+                      <option value="WEEKEND">WEEKEND</option>
+                    </select>
+                  </div>
+                  <div className="attendance-field">
+                    <label>Off Name</label>
+                    <input
+                      value={calendarDayForm.offName}
+                      onChange={(e) =>
+                        setCalendarDayForm((prev) => ({ ...prev, offName: e.target.value }))
+                      }
+                      placeholder="Holiday or off-day name"
+                    />
+                  </div>
+                </>
+              ) : null}
+              <div className="attendance-field">
+                <label>Notes</label>
+                <input
+                  value={calendarDayForm.notes}
+                  onChange={(e) =>
+                    setCalendarDayForm((prev) => ({ ...prev, notes: e.target.value }))
+                  }
+                  placeholder="Optional notes"
+                />
+              </div>
+            </div>
+            <div className="attendance-actions" style={{ marginTop: "12px" }}>
+              <button
+                type="button"
+                className="attendance-action attendance-action--secondary"
+                onClick={() => setEditCalendarDay(null)}
+              >
+                Cancel
+              </button>
+              <button type="button" className="attendance-action" onClick={saveCalendarDay}>
+                Save
+              </button>
+            </div>
           </div>
         </section>
       ) : null}

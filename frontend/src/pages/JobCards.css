@@ -626,6 +626,87 @@
   color: #64748b;
 }
 
+.job-card-service-type-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-card-service-type-add__controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.job-card-service-type-add__controls .job-card-modal__add {
+  min-width: 96px;
+}
+
+.job-card-task-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-card-task-table__head,
+.job-card-task-table__row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(100px, 0.7fr) minmax(130px, 0.8fr) minmax(90px, 0.5fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.job-card-task-table__head {
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.job-card-task-table__row {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.job-card-task-table__task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.job-card-task-table__task input {
+  accent-color: #1e3a8a;
+}
+
+.job-card-task-table__row input[type="number"] {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-align: right;
+}
+
+.job-card-task-table__billable {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.job-card-task-table__billable input {
+  accent-color: #1e3a8a;
+}
+
 .job-card-modal__checklist {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -652,6 +733,28 @@
   margin: 0;
   font-size: 12px;
   color: #94a3b8;
+}
+
+.job-card-labor-mini {
+  margin-top: 8px;
+  border: 1px solid #cbd5e1;
+  background: #eff6ff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-card-labor-mini span {
+  font-size: 13px;
+  color: #1e3a8a;
+}
+
+.job-card-labor-mini strong {
+  font-size: 14px;
+  color: #0f172a;
 }
 
 .job-card-modal__billing {
@@ -866,6 +969,15 @@
     grid-template-columns: 1fr;
   }
 
+  .job-card-task-table__head,
+  .job-card-task-table__row {
+    grid-template-columns: 1fr;
+  }
+
+  .job-card-service-type-add__controls {
+    grid-template-columns: 1fr;
+  }
+
   .materials-add {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -893,6 +1005,10 @@
 }
 
 @media (max-width: 640px) {
+  .job-card-task-table__head {
+    display: none;
+  }
+
   .materials-add {
     grid-template-columns: 1fr;
   }

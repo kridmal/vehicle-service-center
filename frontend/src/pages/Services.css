@@ -128,9 +128,13 @@
 
 .services-task-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(220px, 1.6fr) repeat(2, minmax(140px, 0.9fr)) auto auto auto;
   gap: 12px;
   align-items: end;
+}
+
+.services-field--number input {
+  text-align: right;
 }
 
 .services-remove {

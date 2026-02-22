@@ -15,7 +15,6 @@ function InvoiceView() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasPrinted, setHasPrinted] = useState(false);
   const [localJobCards, setLocalJobCards] = useState([]);
-  const [serviceTypes, setServiceTypes] = useState([]);
   const [customers] = useLocalStorageState("ksc_customers", []);
   const [vehicles] = useLocalStorageState("ksc_vehicles", []);
   const navigate = useNavigate();
@@ -43,18 +42,6 @@ function InvoiceView() {
     };
     loadInvoice();
   }, [id, navigate]);
-
-  useEffect(() => {
-    const loadServices = async () => {
-      try {
-        const { data } = await api.get("/services");
-        setServiceTypes(Array.isArray(data) ? data : []);
-      } catch (error) {
-        setServiceTypes([]);
-      }
-    };
-    loadServices();
-  }, []);
 
   useEffect(() => {
     try {
@@ -87,14 +74,6 @@ function InvoiceView() {
       ) || null
     );
   }, [invoice, localJobCards]);
-  const serviceTypeMap = useMemo(() => {
-    return new Map(
-      serviceTypes.map((service) => [
-        String(service._id || service.id),
-        service,
-      ])
-    );
-  }, [serviceTypes]);
   if (!invoice) {
     return (
       <div className="invoice-view">
@@ -149,19 +128,29 @@ function InvoiceView() {
     localVehicle?.model ||
     "-";
   const serviceEntries =
-    invoice.services ||
-    invoice.jobCardServices ||
-    localJobCard?.services ||
-    [];
-  const serviceList = Array.isArray(serviceEntries)
-    ? serviceEntries.filter(Boolean)
-    : [];
-  const resolveServiceName = (service) => {
-    const directName = service.serviceName || service.name;
-    if (directName) return directName;
-    const key = String(service.serviceType || service._id || service.id || "");
-    return serviceTypeMap.get(key)?.name || key || "Service";
-  };
+    (Array.isArray(invoice.jobCardServices) && invoice.jobCardServices.length > 0
+      ? invoice.jobCardServices
+      : Array.isArray(invoice.services) && invoice.services.length > 0
+      ? invoice.services
+      : Array.isArray(localJobCard?.services)
+      ? localJobCard.services
+      : []) || [];
+  const serviceList = Array.isArray(serviceEntries) ? serviceEntries.filter(Boolean) : [];
+  const laborRows = serviceList.flatMap((service, serviceIndex) => {
+    const tasks = Array.isArray(service?.tasks) ? service.tasks : [];
+    return tasks
+      .map((task, taskIndex) => {
+        const taskName = String(task?.taskName || task?.title || "").trim();
+        if (!taskName) return null;
+        if (task?.isBillable === false) return null;
+        return {
+          id: `${service.serviceType || service._id || serviceIndex}-${taskName}-${taskIndex}`,
+          description: taskName,
+          amount: Math.max(0, Number(task?.laborCharge) || 0),
+        };
+      })
+      .filter(Boolean);
+  });
 
   const isPaid = invoice.paymentStatus === "PAID";
   const paymentState =
@@ -299,7 +288,7 @@ function InvoiceView() {
             <div className="invoice-brand-details">
               <h1>Service Center</h1>
               <p>123 Service Lane, Colombo</p>
-              <p>+94 11 234 5678 · service@center.lk</p>
+              <p>+94 11 234 5678 - service@center.lk</p>
             </div>
           </div>
           <div className="invoice-header-meta">
@@ -355,7 +344,7 @@ function InvoiceView() {
             <div className="invoice-info-row">
               <span>Vehicle</span>
               <strong>
-                {vehicleNumber} · {vehicleBrand} · {vehicleModel}
+                {vehicleNumber} - {vehicleBrand} - {vehicleModel}
               </strong>
             </div>
           </div>
@@ -409,47 +398,28 @@ function InvoiceView() {
 
         <section className="invoice-section">
           <div className="invoice-section-head">
-            <h2>Services & Tasks</h2>
+            <h2>Service & Labor Charges</h2>
           </div>
-          {serviceList.length === 0 ? (
-            <p className="invoice-muted">No services listed.</p>
+          {laborRows.length === 0 ? (
+            <p className="invoice-muted">No billable service tasks recorded.</p>
           ) : (
-            <div className="invoice-services">
-              {serviceList.map((service, index) => {
-                const tasks = Array.isArray(service.tasks)
-                  ? service.tasks.filter((task) => task?.title)
-                  : [];
-                return (
-                  <div
-                    key={`${service.serviceType || service._id || index}`}
-                    className="invoice-service-card"
-                  >
-                    <div className="invoice-service-head">
-                      <strong>
-                        {resolveServiceName(service)}
-                      </strong>
-                      <span>{tasks.length ? `${tasks.length} tasks` : "No tasks"}</span>
-                    </div>
-                    {tasks.length ? (
-                      <ul className="invoice-service-tasks">
-                        {tasks.map((task, taskIndex) => (
-                          <li key={`${task.title}-${taskIndex}`}>
-                            <span>{task.title}</span>
-                            <span>
-                              {task.completed ? "Completed" : "Pending"}
-                              {task.isRequired ? " · Required" : ""}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="invoice-muted">
-                        No tasks were recorded for this service.
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="invoice-table invoice-labor-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th className="table-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {laborRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.description}</td>
+                      <td className="table-right">{formatCurrency(row.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
@@ -459,17 +429,17 @@ function InvoiceView() {
             <h2>Labor Charges</h2>
             <div className="invoice-labor">
               <div className="invoice-summary-row">
-                <span>Labor Charges (Original)</span>
+                <span>Labor Subtotal (Original)</span>
                 <strong>{formatCurrency(laborChargesOriginal)}</strong>
               </div>
               {hasFreeLaborReward || loyaltyLaborDiscount > 0 ? (
                 <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
-                  <span>Loyalty Discount (Free Labor)</span>
+                  <span>Loyalty Discount (Labor)</span>
                   <strong>-{formatCurrency(loyaltyLaborDiscount)}</strong>
                 </div>
               ) : null}
               <div className="invoice-summary-row">
-                <span>Labor Charges (Net)</span>
+                <span>Labor Total (Net)</span>
                 <strong>{formatCurrency(laborChargesNet)}</strong>
               </div>
               {invoice.laborDescription ? (
@@ -527,13 +497,13 @@ function InvoiceView() {
               <strong>{formatCurrency(partsSubtotal)}</strong>
             </div>
             <div className="invoice-summary-row">
-              <span>Labor Charges (Original)</span>
+              <span>Labor Subtotal (Original)</span>
               <strong>{formatCurrency(laborChargesOriginal)}</strong>
             </div>
             {hasFreeLaborReward || loyaltyLaborDiscount > 0 ? (
               <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
                 <span>
-                  Loyalty Discount (Free Labor)
+                  Loyalty Discount (Labor)
                   {invoice.appliedRewards?.length > 0 && (
                     <small style={{ display: "block", fontSize: 11, color: "#6b7280" }}>
                       {invoice.appliedRewards.map((r) => r.ruleName).filter(Boolean).join(", ")}
@@ -544,7 +514,7 @@ function InvoiceView() {
               </div>
             ) : null}
             <div className="invoice-summary-row">
-              <span>Labor Charges (Net)</span>
+              <span>Labor Total (Net)</span>
               <strong>{formatCurrency(laborChargesNet)}</strong>
             </div>
             <div className="invoice-summary-total">
@@ -601,3 +571,4 @@ function InvoiceView() {
 }
 
 export default InvoiceView;
+

@@ -172,6 +172,40 @@
   flex-wrap: wrap;
 }
 
+.attendance-calendar-weekdays {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.attendance-calendar-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #334155;
+}
+
+.attendance-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.attendance-modal {
+  width: min(760px, 100%);
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 20px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+}
+
 .attendance-action--secondary {
   background: #ffffff;
   color: #1e3a8a;
@@ -185,6 +219,10 @@
 
 @media (max-width: 720px) {
   .attendance-card {
+    padding: 16px;
+  }
+
+  .attendance-modal {
     padding: 16px;
   }
 }

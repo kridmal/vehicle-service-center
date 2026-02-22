@@ -189,6 +189,10 @@
   min-width: 920px;
 }
 
+.invoice-labor-table table {
+  min-width: 0;
+}
+
 .invoice-table th,
 .invoice-table td {
   padding: 12px 10px;

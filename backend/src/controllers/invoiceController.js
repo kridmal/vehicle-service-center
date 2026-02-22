@@ -10,6 +10,13 @@ import {
   deriveLoyaltyPricing,
   normalizeSelectedReward,
 } from "../utils/loyaltyDiscount.js";
+import {
+  computeLaborTotals,
+  flattenServiceTasks,
+  hasPositiveTaskLaborCharge,
+  hasTaskLaborMetadata,
+  toNonNegativeNumber,
+} from "../utils/laborTotals.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -124,6 +131,80 @@ const buildPartsUsed = (partsUsed, inventoryItems) => {
     .filter(Boolean);
 };
 
+const normalizeInvoiceTaskSnapshot = (task) => {
+  if (typeof task === "string") {
+    const title = task.trim();
+    if (!title) return null;
+    return {
+      taskId: null,
+      taskName: title,
+      title,
+      isRequired: false,
+      completed: false,
+      laborHours: 0,
+      laborCharge: 0,
+      isBillable: true,
+    };
+  }
+  if (!task || typeof task !== "object") return null;
+
+  const title = String(task.taskName || task.title || "").trim();
+  if (!title) return null;
+
+  const taskId = task.taskId || task._id || task.id || null;
+
+  return {
+    taskId: taskId ? String(taskId) : null,
+    taskName: title,
+    title,
+    isRequired: Boolean(task.isRequired),
+    completed: Boolean(task.completed),
+    laborHours: roundCurrency(toNonNegativeNumber(task.laborHours)),
+    laborCharge: roundCurrency(toNonNegativeNumber(task.laborCharge)),
+    isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+  };
+};
+
+const normalizeInvoiceServiceSnapshot = (services = []) =>
+  (Array.isArray(services) ? services : [])
+    .map((service) => {
+      if (!service) return null;
+      if (typeof service === "string") {
+        const serviceType = service.trim();
+        if (!serviceType) return null;
+        return { serviceType, tasks: [] };
+      }
+      if (typeof service !== "object") return null;
+      const serviceType = String(
+        service.serviceType || service.id || service._id || ""
+      ).trim();
+      if (!serviceType) return null;
+      return {
+        serviceType,
+        serviceName: service.serviceName || service.name || "",
+        tasks: (Array.isArray(service.tasks) ? service.tasks : [])
+          .map((task) => normalizeInvoiceTaskSnapshot(task))
+          .filter(Boolean),
+      };
+    })
+    .filter(Boolean);
+
+const resolveInvoiceLaborChargesOriginal = ({ jobCard, jobCardServices = [] }) => {
+  const fallback = roundCurrency(
+    toNonNegativeNumber(jobCard?.laborChargesOriginal ?? jobCard?.laborCharges)
+  );
+
+  const hasMetadata = hasTaskLaborMetadata(jobCard?.services || []);
+  const hasPositiveLabor = hasPositiveTaskLaborCharge(jobCard?.services || []);
+
+  if (!hasMetadata || (!hasPositiveLabor && fallback > 0)) {
+    return fallback;
+  }
+
+  const taskTotals = computeLaborTotals(flattenServiceTasks(jobCardServices));
+  return roundCurrency(taskTotals.laborSubtotalOriginal);
+};
+
 const mapAppliedRewardsForInvoice = (appliedRewards, laborDiscount) => {
   const selectedReward = normalizeSelectedReward(appliedRewards);
   if (!selectedReward || !selectedReward.ruleId) {
@@ -147,7 +228,7 @@ const mapAppliedRewardsForInvoice = (appliedRewards, laborDiscount) => {
   ];
 };
 
-const buildInvoicePricingSnapshot = ({ jobCard, partsUsed }) => {
+const buildInvoicePricingSnapshot = ({ jobCard, partsUsed, jobCardServices }) => {
   const partsSubtotalOriginal = partsUsed.reduce(
     (sum, item) => sum + toNumber(item.lineTotalOriginal),
     0
@@ -160,9 +241,10 @@ const buildInvoicePricingSnapshot = ({ jobCard, partsUsed }) => {
     (sum, item) => sum + toNumber(item.lineTotal),
     0
   );
-  const laborChargesOriginal = toNumber(
-    jobCard.laborChargesOriginal ?? jobCard.laborCharges
-  );
+  const laborChargesOriginal = resolveInvoiceLaborChargesOriginal({
+    jobCard,
+    jobCardServices,
+  });
 
   const pricing = deriveLoyaltyPricing({
     partsSubtotal,
@@ -349,9 +431,12 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
       return res.status(400).json({ message: missingPart.error });
     }
 
+    const jobCardServices = normalizeInvoiceServiceSnapshot(jobCard.services || []);
+
     const pricing = buildInvoicePricingSnapshot({
       jobCard,
       partsUsed,
+      jobCardServices,
     });
 
     const ownerCandidate = jobCard.ownerId || jobCard.customerId;
@@ -379,6 +464,7 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
       vehicleModel: vehicle?.modelName || "",
       items: partsUsed,
       partsUsed,
+      jobCardServices,
       subtotalPartsOriginal: pricing.partsSubtotalOriginal,
       partsDiscountTotal: pricing.partsDiscountTotal,
       subtotalParts: pricing.partsSubtotal,

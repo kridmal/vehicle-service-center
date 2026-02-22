@@ -17,6 +17,7 @@ const attendanceSchema = new mongoose.Schema(
       roleName: { type: String, trim: true },
       salaryType: { type: String, trim: true },
     },
+    summaryKey: { type: String, trim: true },
     date: { type: String, trim: true },
     checkInTime: { type: String, trim: true },
     checkOutTime: { type: String, trim: true },
@@ -45,7 +46,10 @@ const attendanceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-attendanceSchema.index({ staffId: 1, month: 1, year: 1 }, { unique: true });
+attendanceSchema.index(
+  { summaryKey: 1 },
+  { unique: true, sparse: true, name: "summaryKey_1_unique_sparse" }
+);
 attendanceSchema.index(
   { staffId: 1, date: 1 },
   { unique: true, partialFilterExpression: { date: { $type: "string" } } }

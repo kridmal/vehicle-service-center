@@ -7,6 +7,7 @@ import Customers from "./pages/Customers.jsx";
 import DashboardPage from "./pages/dashboard/DashboardPage.jsx";
 import JobCards from "./pages/JobCards.jsx";
 import JobCardNew from "./pages/JobCardNew.jsx";
+import JobCardPrint from "./pages/JobCardPrint.jsx";
 import Login from "./pages/Login.jsx";
 import Leave from "./pages/Leave.jsx";
 import LoyaltySettings from "./pages/LoyaltySettings.jsx";
@@ -45,6 +46,7 @@ function App() {
         }
       />
       <Route element={<ProtectedRoute />}>
+        <Route path="/job-cards/:id/print" element={<JobCardPrint />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route element={<OwnerRoute />}>

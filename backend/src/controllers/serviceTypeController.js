@@ -4,13 +4,62 @@ import ServiceType from "../models/ServiceType.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const roundCurrency = (value) =>
+  Math.round((toNumber(value) + Number.EPSILON) * 100) / 100;
+
+const parseNonNegativeCurrency = (value, fallback = 0) => {
+  if (value === undefined || value === null || value === "") {
+    return { value: roundCurrency(Math.max(0, fallback)), valid: true };
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { value: roundCurrency(Math.max(0, fallback)), valid: false };
+  }
+  return { value: roundCurrency(parsed), valid: true };
+};
+
 const normalizeTasks = (tasks = []) =>
   tasks
-    .map((task) => ({
-      title: task.title?.trim(),
-      isRequired: Boolean(task.isRequired),
-    }))
-    .filter((task) => task.title);
+    .map((task) => {
+      const taskTitle =
+        typeof task === "string"
+          ? task.trim()
+          : String(task?.title || "").trim();
+      if (!taskTitle) return null;
+
+      const laborHoursParsed = parseNonNegativeCurrency(
+        task?.laborHoursDefault,
+        0
+      );
+      const laborChargeParsed = parseNonNegativeCurrency(
+        task?.laborChargeDefault,
+        0
+      );
+      if (!laborHoursParsed.valid || !laborChargeParsed.valid) {
+        return null;
+      }
+
+      const normalized = {
+        title: taskTitle,
+        isRequired: Boolean(task?.isRequired),
+        laborHoursDefault: laborHoursParsed.value,
+        laborChargeDefault: laborChargeParsed.value,
+        isBillable: task?.isBillable !== undefined ? Boolean(task.isBillable) : true,
+      };
+
+      const incomingTaskId = task?._id || task?.id;
+      if (incomingTaskId) {
+        normalized._id = incomingTaskId;
+      }
+
+      return normalized;
+    })
+    .filter((task) => task && task.title);
 
 const ensureUniqueName = async (name, ignoreId = null) => {
   const existing = await ServiceType.findOne({

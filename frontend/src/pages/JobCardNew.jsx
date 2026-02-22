@@ -8,6 +8,11 @@ import {
   computeDraftPricing,
   formatFreeLaborRewardLabel,
 } from "../utils/loyaltyPricing.js";
+import {
+  computeLaborSubtotalFromServices,
+  roundCurrency as roundTaskCurrency,
+  toNonNegativeNumber,
+} from "../utils/taskLabor.js";
 import { getJobCards, saveJobCards } from "../utils/storage.js";
 import "./JobCardNew.css";
 
@@ -25,7 +30,6 @@ function JobCardNew() {
   const [selectedServices, setSelectedServices] = useState([]);
   const [serviceAddError, setServiceAddError] = useState("");
   const [serviceTasksDraft, setServiceTasksDraft] = useState([]);
-  const [laborCharges, setLaborCharges] = useState("");
   const [notes, setNotes] = useState("");
   const [ownerSearch, setOwnerSearch] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
@@ -248,14 +252,19 @@ function JobCardNew() {
 
   const previewCustomerMongoId = previewOwner?.mongoId || "";
 
+  const laborChargesOriginal = useMemo(
+    () => computeLaborSubtotalFromServices(selectedServices),
+    [selectedServices]
+  );
+
   const pricingPreview = useMemo(
     () =>
       computeDraftPricing({
         partsSubtotal: 0,
-        laborChargesOriginal: Number(laborCharges) || 0,
+        laborChargesOriginal,
         appliedRewards,
       }),
-    [appliedRewards, laborCharges]
+    [appliedRewards, laborChargesOriginal]
   );
 
   useEffect(() => {
@@ -349,22 +358,23 @@ function JobCardNew() {
     const tasks = Array.isArray(selectedService.tasks)
       ? selectedService.tasks
           .map((task) => ({
+            taskId: task._id || task.id || null,
+            taskName: task.title,
             title: task.title,
             isRequired: Boolean(task.isRequired),
             completed: false,
+            laborHours: roundTaskCurrency(
+              toNonNegativeNumber(task.laborHoursDefault)
+            ),
+            laborCharge: roundTaskCurrency(
+              toNonNegativeNumber(task.laborChargeDefault)
+            ),
+            isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
           }))
           .filter((task) => task.title)
       : [];
     setServiceTasksDraft(tasks);
   }, [selectedService]);
-
-  const toggleDraftTask = (taskIndex) => {
-    setServiceTasksDraft((prev) =>
-      prev.map((task, index) =>
-        index === taskIndex ? { ...task, completed: !task.completed } : task
-      )
-    );
-  };
 
   const handleAddService = () => {
     if (!selectedService) return;
@@ -378,9 +388,14 @@ function JobCardNew() {
     }
     const tasks = serviceTasksDraft
       .map((task) => ({
+        taskId: task.taskId ? String(task.taskId) : null,
+        taskName: task.taskName || task.title,
         title: task.title,
         isRequired: Boolean(task.isRequired),
         completed: Boolean(task.completed),
+        laborHours: roundTaskCurrency(toNonNegativeNumber(task.laborHours)),
+        laborCharge: roundTaskCurrency(toNonNegativeNumber(task.laborCharge)),
+        isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
       }))
       .filter((task) => task.title);
     setSelectedServices((prev) => [
@@ -410,6 +425,23 @@ function JobCardNew() {
         const tasks = (service.tasks || []).map((task, index) =>
           index === taskIndex ? { ...task, completed: !task.completed } : task
         );
+        return { ...service, tasks };
+      })
+    );
+  };
+
+  const updateSelectedTaskLabor = (serviceType, taskIndex, field, value) => {
+    setSelectedServices((prev) =>
+      prev.map((service) => {
+        if (String(service.serviceType) !== String(serviceType)) return service;
+        const tasks = (service.tasks || []).map((task, index) => {
+          if (index !== taskIndex) return task;
+          if (field === "isBillable") {
+            return { ...task, isBillable: Boolean(value) };
+          }
+          const normalizedValue = roundTaskCurrency(toNonNegativeNumber(value));
+          return { ...task, [field]: normalizedValue };
+        });
         return { ...service, tasks };
       })
     );
@@ -1113,30 +1145,66 @@ function JobCardNew() {
       if (!ownerMongoId) {
         throw new Error("Owner sync failed");
       }
-      await ensureVehicleSynced(selectedVehicle, ownerMongoId);
+      const vehicleMongoId = await ensureVehicleSynced(selectedVehicle, ownerMongoId);
       if (changeOwner && resolvedOwnerId !== vehicleOwnerId) {
         await assignOwnerToVehicle(resolvedOwnerId, ownerMongoId);
       }
-      const newJobCard = {
-        id: `jc_${Date.now()}`,
-        ownerId: resolvedOwnerId,
-        customerId: resolvedOwnerId,
-        vehicleId,
+      const localJobCardNo = `jc_${Date.now()}`;
+      const createdAtIso = new Date().toISOString();
+      const { data: createdJobCard } = await api.post("/job-cards", {
+        jobCardNo: localJobCardNo,
+        ownerId: ownerMongoId || resolvedOwnerId,
+        customerId: ownerMongoId || resolvedOwnerId,
+        vehicleId: vehicleMongoId || selectedVehicle?.mongoId || vehicleId,
         services: selectedServices,
         appliedRewards: appliedRewards.slice(0, 1),
         laborCharges: pricingPreview.laborChargesOriginal,
-        laborChargesOriginal: pricingPreview.laborChargesOriginal,
-        loyaltyLaborDiscount: pricingPreview.loyaltyLaborDiscount,
-        laborChargesNet: pricingPreview.laborChargesNet,
-        subtotalParts: pricingPreview.subtotalParts,
-        grandTotal: pricingPreview.grandTotal,
-        notes: notes.trim(),
+        workNotes: notes.trim(),
         status: "OPEN",
-        createdAt: new Date().toISOString(),
+        createdAt: createdAtIso,
+      });
+      const mongoId = createdJobCard?._id || createdJobCard?.id;
+      const persistedJobCardNo = createdJobCard?.jobCardNo || localJobCardNo;
+      const newJobCard = {
+        id: persistedJobCardNo,
+        mongoId: mongoId || null,
+        ownerId: resolvedOwnerId,
+        customerId: resolvedOwnerId,
+        vehicleId,
+        serviceTypeIds:
+          createdJobCard?.serviceTypeIds ||
+          selectedServices.map((service) => String(service?.serviceType || "")).filter(Boolean),
+        services: createdJobCard?.services || selectedServices,
+        appliedRewards:
+          Array.isArray(createdJobCard?.appliedRewards) &&
+          createdJobCard.appliedRewards.length > 0
+            ? [createdJobCard.appliedRewards[0]]
+            : appliedRewards.slice(0, 1),
+        laborCharges:
+          createdJobCard?.laborChargesOriginal ??
+          createdJobCard?.laborCharges ??
+          pricingPreview.laborChargesOriginal,
+        laborChargesOriginal:
+          createdJobCard?.laborChargesOriginal ?? pricingPreview.laborChargesOriginal,
+        loyaltyLaborDiscount:
+          createdJobCard?.loyaltyLaborDiscount ?? pricingPreview.loyaltyLaborDiscount,
+        laborChargesNet:
+          createdJobCard?.laborChargesNet ?? pricingPreview.laborChargesNet,
+        subtotalParts: createdJobCard?.subtotalParts ?? pricingPreview.subtotalParts,
+        grandTotal: createdJobCard?.grandTotal ?? pricingPreview.grandTotal,
+        notes: notes.trim(),
+        workNotes: createdJobCard?.workNotes ?? notes.trim(),
+        status: createdJobCard?.status || "OPEN",
+        paymentStatus: createdJobCard?.paymentStatus || "UNPAID",
+        createdAt: createdJobCard?.createdAt || createdAtIso,
       };
       const existing = getJobCards();
       saveJobCards([newJobCard, ...existing]);
-      navigate("/job-cards");
+      if (mongoId) {
+        navigate(`/job-cards/${mongoId}/print?autoprint=1`);
+      } else {
+        navigate("/job-cards");
+      }
     } catch (error) {
       handleAuthRedirect(error.response?.status);
       setSyncError(
@@ -1695,24 +1763,75 @@ function JobCardNew() {
                         </div>
                       </div>
                       {service.tasks?.length ? (
-                        <div className="job-card-checklist job-card-checklist--tasks">
+                        <div className="job-card-task-table job-card-task-table--new">
+                          <div className="job-card-task-table__head">
+                            <span>Task</span>
+                            <span>Labor Hours</span>
+                            <span>Labor Charge (LKR)</span>
+                            <span>Billable</span>
+                          </div>
                           {service.tasks.map((task, index) => (
-                            <label
+                            <div
                               key={`${service.serviceType}-${task.title}-${index}`}
-                              className="job-card-checklist__item"
+                              className="job-card-task-table__row"
                             >
+                              <label className="job-card-task-table__task">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(task.completed)}
+                                  onChange={() =>
+                                    toggleSelectedTask(service.serviceType, index)
+                                  }
+                                />
+                                <span>
+                                  {task.title}
+                                  {task.isRequired ? " (Required)" : ""}
+                                </span>
+                              </label>
                               <input
-                                type="checkbox"
-                                checked={Boolean(task.completed)}
-                                onChange={() =>
-                                  toggleSelectedTask(service.serviceType, index)
+                                type="number"
+                                min="0"
+                                step="0.25"
+                                value={task.laborHours ?? 0}
+                                onChange={(event) =>
+                                  updateSelectedTaskLabor(
+                                    service.serviceType,
+                                    index,
+                                    "laborHours",
+                                    event.target.value
+                                  )
                                 }
                               />
-                              <span>
-                                {task.title}
-                                {task.isRequired ? " (Required)" : ""}
-                              </span>
-                            </label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={task.laborCharge ?? 0}
+                                onChange={(event) =>
+                                  updateSelectedTaskLabor(
+                                    service.serviceType,
+                                    index,
+                                    "laborCharge",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                              <label className="job-card-task-table__billable">
+                                <input
+                                  type="checkbox"
+                                  checked={task.isBillable !== false}
+                                  onChange={(event) =>
+                                    updateSelectedTaskLabor(
+                                      service.serviceType,
+                                      index,
+                                      "isBillable",
+                                      event.target.checked
+                                    )
+                                  }
+                                />
+                                <span>Yes</span>
+                              </label>
+                            </div>
                           ))}
                         </div>
                       ) : (
@@ -1724,6 +1843,12 @@ function JobCardNew() {
                   ))}
                 </div>
               )}
+              {selectedServices.length > 0 ? (
+                <div className="job-card-labor-summary">
+                  <span>Labor Charges (Original)</span>
+                  <strong>{formatMoney(laborChargesOriginal)}</strong>
+                </div>
+              ) : null}
             </div>
 
             <div className="job-card-field">

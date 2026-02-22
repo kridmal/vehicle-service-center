@@ -1,13 +1,24 @@
 import mongoose from "mongoose";
+import Counter from "../models/Counter.js";
+import Customer from "../models/Customer.js";
 import JobCard from "../models/JobCard.js";
 import InventoryItem from "../models/InventoryItem.js";
 import Invoice from "../models/Invoice.js";
+import ServiceType from "../models/ServiceType.js";
 import Staff from "../models/Staff.js";
+import Vehicle from "../models/Vehicle.js";
 import { computeItemDiscount, roundMoney } from "../utils/itemDiscount.js";
 import {
   deriveLoyaltyPricing,
   normalizeSelectedReward,
 } from "../utils/loyaltyDiscount.js";
+import {
+  computeLaborTotals,
+  flattenServiceTasks,
+  hasPositiveTaskLaborCharge,
+  hasTaskLaborMetadata,
+  toNonNegativeNumber,
+} from "../utils/laborTotals.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -35,12 +46,44 @@ const normalizeDiscountMode = (value) => {
 
 const normalizeServiceTasks = (tasks = []) =>
   tasks
-    .map((task) => ({
-      title: task.title?.trim(),
-      isRequired: Boolean(task.isRequired),
-      completed: Boolean(task.completed),
-    }))
-    .filter((task) => task.title);
+    .map((task) => {
+      if (typeof task === "string") {
+        const title = task.trim();
+        if (!title) return null;
+        return {
+          taskId: null,
+          taskName: title,
+          title,
+          isRequired: false,
+          completed: false,
+          laborHours: 0,
+          laborCharge: 0,
+          isBillable: true,
+        };
+      }
+      if (!task || typeof task !== "object") return null;
+
+      const title = String(task.title || task.taskName || "").trim();
+      if (!title) return null;
+
+      const taskId = task.taskId || task._id || task.id || null;
+
+      return {
+        taskId: taskId ? String(taskId) : null,
+        taskName: title,
+        title,
+        isRequired: Boolean(task.isRequired),
+        completed: Boolean(task.completed),
+        laborHours: roundCurrency(
+          toNonNegativeNumber(task.laborHours ?? task.laborHoursDefault)
+        ),
+        laborCharge: roundCurrency(
+          toNonNegativeNumber(task.laborCharge ?? task.laborChargeDefault)
+        ),
+        isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+      };
+    })
+    .filter((task) => task && task.title);
 
 const normalizeServices = (services = []) =>
   services
@@ -59,6 +102,159 @@ const normalizeServices = (services = []) =>
       };
     })
     .filter(Boolean);
+
+const collectServiceTypeIds = (services = []) =>
+  [
+    ...new Set(
+      (Array.isArray(services) ? services : [])
+        .map((service) => String(service?.serviceType || "").trim())
+        .filter(Boolean)
+    ),
+  ];
+
+const buildTaskIdentity = (task) => {
+  if (!task || typeof task !== "object") return "";
+  const taskId = String(task.taskId || "").trim();
+  if (!taskId) return "";
+  return `id:${taskId}`;
+};
+
+const appendServiceTypeTasks = ({
+  existingServices = [],
+  incomingServiceTypeDocs = [],
+}) => {
+  const existingTaskIdentities = new Set(
+    (Array.isArray(existingServices) ? existingServices : []).flatMap((service) =>
+      (service?.tasks || [])
+        .map((task) => buildTaskIdentity(task))
+        .filter(Boolean)
+    )
+  );
+
+  const appendedServices = [];
+  for (const serviceTypeDoc of incomingServiceTypeDocs) {
+    const normalizedTasks = normalizeServiceTasks(serviceTypeDoc?.tasks || []).filter(
+      (task) => {
+        const identity = buildTaskIdentity(task);
+        if (!identity) return true;
+        if (existingTaskIdentities.has(identity)) return false;
+        existingTaskIdentities.add(identity);
+        return true;
+      }
+    );
+
+    appendedServices.push({
+      serviceType: String(serviceTypeDoc._id),
+      tasks: normalizedTasks,
+    });
+  }
+
+  return [
+    ...(Array.isArray(existingServices) ? existingServices : []),
+    ...appendedServices,
+  ];
+};
+
+const toPrintCustomer = (customer) => {
+  if (!customer) return null;
+  return {
+    id: customer._id,
+    name: customer.name || "",
+    phone: customer.phone || "",
+    email: customer.email || "",
+    address: customer.address || "",
+  };
+};
+
+const toPrintVehicle = (vehicle) => {
+  if (!vehicle) return null;
+  return {
+    id: vehicle._id,
+    vehicleNumber: vehicle.vehicleNumber || "",
+    brand: vehicle.brandName || "",
+    model: vehicle.modelName || "",
+    frameNumber: vehicle.frameNumber || "",
+    engineNumber: vehicle.engineNumber || "",
+    odometer: vehicle.odometer || null,
+  };
+};
+
+const enrichJobCardForClient = async (jobCard) => {
+  if (!jobCard) return null;
+  const snapshot = jobCard.toObject ? jobCard.toObject() : { ...jobCard };
+
+  const serviceTypeIds = snapshot.serviceTypeIds?.length
+    ? snapshot.serviceTypeIds.map((serviceTypeId) => String(serviceTypeId))
+    : collectServiceTypeIds(snapshot.services);
+  const [serviceTypes, customer, vehicle] = await Promise.all([
+    serviceTypeIds.length
+      ? ServiceType.find({ _id: { $in: serviceTypeIds.filter((id) => isValidId(id)) } })
+      : [],
+    isValidId(snapshot.customerId || snapshot.ownerId)
+      ? Customer.findById(snapshot.customerId || snapshot.ownerId)
+      : null,
+    isValidId(snapshot.vehicleId) ? Vehicle.findById(snapshot.vehicleId) : null,
+  ]);
+
+  const serviceNameMap = new Map(
+    (serviceTypes || []).map((serviceType) => [String(serviceType._id), serviceType.name])
+  );
+
+  const servicesWithName = (Array.isArray(snapshot.services) ? snapshot.services : []).map(
+    (service) => ({
+      ...service,
+      serviceName:
+        service?.serviceName ||
+        serviceNameMap.get(String(service?.serviceType || "")) ||
+        "",
+    })
+  );
+
+  return {
+    ...snapshot,
+    jobNumber: snapshot.jobCardNo,
+    serviceTypeIds: snapshot.serviceTypeIds?.length
+      ? snapshot.serviceTypeIds.map((id) => String(id))
+      : serviceTypeIds,
+    services: servicesWithName,
+    customer: toPrintCustomer(customer),
+    vehicle: toPrintVehicle(vehicle),
+  };
+};
+
+const nextJobCardNumber = async () => {
+  const counter = await Counter.findByIdAndUpdate(
+    "jobCardNumber",
+    { $inc: { seq: 1 } },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+
+  return `JC-${String(counter.seq).padStart(5, "0")}`;
+};
+
+const resolveLaborChargesOriginal = ({
+  services = [],
+  fallbackLaborCharges = 0,
+}) => {
+  const hasLaborMetadataInIncoming = hasTaskLaborMetadata(services);
+  const hasPositiveLaborInIncoming = hasPositiveTaskLaborCharge(services);
+
+  const shouldUseTaskLabor =
+    hasLaborMetadataInIncoming &&
+    (hasPositiveLaborInIncoming || toNonNegativeNumber(fallbackLaborCharges) === 0);
+
+  if (!shouldUseTaskLabor) {
+    return roundCurrency(toNonNegativeNumber(fallbackLaborCharges));
+  }
+
+  const flattenedTasks = flattenServiceTasks(services);
+  const totals = computeLaborTotals(flattenedTasks);
+  return roundCurrency(totals.laborSubtotalOriginal);
+};
 
 const normalizePartsUsed = (partsUsed = []) =>
   partsUsed
@@ -308,6 +504,25 @@ export const listJobCards = async (req, res, next) => {
   }
 };
 
+export const getJobCardById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ message: "Invalid job card id" });
+    }
+
+    const jobCard = await JobCard.findById(id);
+    if (!jobCard) {
+      return res.status(404).json({ message: "Job card not found" });
+    }
+
+    const enriched = await enrichJobCardForClient(jobCard);
+    return res.json(enriched);
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const createJobCard = async (req, res, next) => {
   try {
     const {
@@ -327,11 +542,13 @@ export const createJobCard = async (req, res, next) => {
       assignedWorkers,
     } = req.body;
     const resolvedOwnerId = ownerId || customerId;
-    if (!jobCardNo || !resolvedOwnerId || !vehicleId) {
+    if (!resolvedOwnerId || !vehicleId) {
       return res
         .status(400)
-        .json({ message: "Job card number, owner, and vehicle are required" });
+        .json({ message: "Owner and vehicle are required" });
     }
+
+    const resolvedJobCardNo = String(jobCardNo || "").trim() || (await nextJobCardNumber());
 
     const normalizedServices = normalizeServices(services);
     if (normalizedServices.length === 0) {
@@ -340,7 +557,7 @@ export const createJobCard = async (req, res, next) => {
         .json({ message: "At least one service must be added" });
     }
 
-    const existing = await JobCard.findOne({ jobCardNo });
+    const existing = await JobCard.findOne({ jobCardNo: resolvedJobCardNo });
     if (existing) {
       return res.json(existing);
     }
@@ -356,9 +573,13 @@ export const createJobCard = async (req, res, next) => {
     }
 
     const normalizedRewards = normalizeAppliedRewards(appliedRewards);
+    const laborChargesOriginal = resolveLaborChargesOriginal({
+      services: normalizedServices,
+      fallbackLaborCharges: toNumber(laborCharges),
+    });
     const pricing = deriveLoyaltyPricing({
       partsSubtotal: partsSubtotalResult.subtotalParts,
-      laborChargesOriginal: toNumber(laborCharges),
+      laborChargesOriginal,
       appliedRewards: normalizedRewards,
     });
     const persistedAppliedRewards = withCalculatedRewardDiscount(
@@ -385,10 +606,11 @@ export const createJobCard = async (req, res, next) => {
         : "";
 
     const jobCard = await JobCard.create({
-      jobCardNo,
+      jobCardNo: resolvedJobCardNo,
       ownerId: resolvedOwnerId,
       customerId: resolvedOwnerId,
       vehicleId,
+      serviceTypeIds: collectServiceTypeIds(normalizedServices),
       services: normalizedServices,
       assignedWorker: resolvedAssignedWorker,
       assignedWorkers: assignedWorkerSnapshots,
@@ -568,10 +790,15 @@ export const updateJobCard = async (req, res, next) => {
         ? normalizeAppliedRewards(req.body.appliedRewards)
         : normalizeAppliedRewards(jobCard.appliedRewards);
 
-    const laborChargesOriginal =
+    const servicesForPricing = incomingServices ?? jobCard.services;
+    const fallbackLaborCharges =
       req.body.laborCharges !== undefined
         ? toNumber(req.body.laborCharges)
         : toNumber(jobCard.laborChargesOriginal ?? jobCard.laborCharges);
+    const laborChargesOriginal = resolveLaborChargesOriginal({
+      services: servicesForPricing,
+      fallbackLaborCharges,
+    });
 
     const pricing = deriveLoyaltyPricing({
       partsSubtotal: partsSubtotalResult.subtotalParts,
@@ -614,7 +841,8 @@ export const updateJobCard = async (req, res, next) => {
       loyaltyAppliedAt,
       paymentStatus: paymentStatus ?? jobCard.paymentStatus,
       workNotes: req.body.workNotes ?? jobCard.workNotes,
-      services: incomingServices ?? jobCard.services,
+      serviceTypeIds: collectServiceTypeIds(servicesForPricing),
+      services: servicesForPricing,
       appliedRewards: persistedAppliedRewards,
     };
 
@@ -623,6 +851,136 @@ export const updateJobCard = async (req, res, next) => {
       runValidators: true,
     });
 
+    return res.json(updated);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const addJobCardServiceTypes = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ message: "Invalid job card id" });
+    }
+
+    const addServiceTypeIds = Array.isArray(req.body?.addServiceTypeIds)
+      ? req.body.addServiceTypeIds
+      : [];
+    const requestedServiceTypeIds = [
+      ...new Set(
+        addServiceTypeIds
+          .map((serviceTypeId) => String(serviceTypeId || "").trim())
+          .filter(Boolean)
+      ),
+    ];
+
+    if (requestedServiceTypeIds.length === 0) {
+      return res.status(400).json({ message: "At least one service type is required" });
+    }
+    if (requestedServiceTypeIds.some((serviceTypeId) => !isValidId(serviceTypeId))) {
+      return res.status(400).json({ message: "Invalid service type id" });
+    }
+
+    const jobCard = await JobCard.findById(id);
+    if (!jobCard) {
+      return res.status(404).json({ message: "Job card not found" });
+    }
+
+    if (jobCard.status !== "OPEN") {
+      return res
+        .status(400)
+        .json({ message: "Cannot modify service types after completion" });
+    }
+
+    const existingServiceTypeIds = new Set(collectServiceTypeIds(jobCard.services || []));
+    const duplicateServiceTypeIds = requestedServiceTypeIds.filter((serviceTypeId) =>
+      existingServiceTypeIds.has(serviceTypeId)
+    );
+
+    if (duplicateServiceTypeIds.length > 0) {
+      return res.status(400).json({
+        message: "One or more service types are already added to this job card",
+      });
+    }
+
+    const serviceTypes = await ServiceType.find({
+      _id: { $in: requestedServiceTypeIds },
+    });
+    if (serviceTypes.length !== requestedServiceTypeIds.length) {
+      const foundIds = new Set(serviceTypes.map((serviceType) => String(serviceType._id)));
+      const missingIds = requestedServiceTypeIds.filter((serviceTypeId) => !foundIds.has(serviceTypeId));
+      return res.status(404).json({
+        message: `Service type not found: ${missingIds.join(", ")}`,
+      });
+    }
+
+    const serviceTypeMap = new Map(
+      serviceTypes.map((serviceType) => [String(serviceType._id), serviceType])
+    );
+    const orderedServiceTypes = requestedServiceTypeIds
+      .map((serviceTypeId) => serviceTypeMap.get(serviceTypeId))
+      .filter(Boolean);
+
+    const mergedServices = appendServiceTypeTasks({
+      existingServices: jobCard.services || [],
+      incomingServiceTypeDocs: orderedServiceTypes,
+    });
+    const mergedServiceTypeIds = [
+      ...new Set([...(jobCard.serviceTypeIds || []).map((value) => String(value)), ...collectServiceTypeIds(mergedServices)]),
+    ];
+
+    const normalizedPartsUsed = normalizePartsUsed(jobCard.partsUsed || []);
+    const inventoryContext = await loadInventoryContext(normalizedPartsUsed);
+    const partsSubtotalResult = calculatePartsSubtotal(normalizedPartsUsed, inventoryContext);
+    if (partsSubtotalResult.error) {
+      return res.status(400).json({ message: partsSubtotalResult.error });
+    }
+
+    const normalizedRewards = normalizeAppliedRewards(jobCard.appliedRewards);
+    const laborChargesOriginal = resolveLaborChargesOriginal({
+      services: mergedServices,
+      fallbackLaborCharges: toNumber(jobCard.laborChargesOriginal ?? jobCard.laborCharges),
+    });
+    const pricing = deriveLoyaltyPricing({
+      partsSubtotal: partsSubtotalResult.subtotalParts,
+      laborChargesOriginal,
+      appliedRewards: normalizedRewards,
+    });
+    const persistedAppliedRewards = withCalculatedRewardDiscount(
+      normalizedRewards,
+      pricing.loyaltyLaborDiscount
+    );
+
+    const previousRewardIdentity = buildRewardIdentity(
+      normalizeSelectedReward(jobCard.appliedRewards || [])
+    );
+    const nextRewardIdentity = buildRewardIdentity(
+      normalizeSelectedReward(persistedAppliedRewards)
+    );
+    const loyaltyAppliedAt = nextRewardIdentity
+      ? previousRewardIdentity &&
+        previousRewardIdentity === nextRewardIdentity &&
+        jobCard.loyaltyAppliedAt
+        ? jobCard.loyaltyAppliedAt
+        : new Date()
+      : null;
+
+    jobCard.serviceTypeIds = mergedServiceTypeIds;
+    jobCard.services = mergedServices;
+    jobCard.partsUsed = partsSubtotalResult.normalizedPartsUsed;
+    jobCard.laborCharges = pricing.laborChargesOriginal;
+    jobCard.laborChargesOriginal = pricing.laborChargesOriginal;
+    jobCard.loyaltyLaborDiscount = pricing.loyaltyLaborDiscount;
+    jobCard.laborChargesNet = pricing.laborChargesNet;
+    jobCard.subtotalPartsOriginal = partsSubtotalResult.subtotalPartsOriginal;
+    jobCard.partsDiscountTotal = partsSubtotalResult.partsDiscountTotal;
+    jobCard.subtotalParts = pricing.subtotalParts;
+    jobCard.grandTotal = pricing.grandTotal;
+    jobCard.appliedRewards = persistedAppliedRewards;
+    jobCard.loyaltyAppliedAt = loyaltyAppliedAt;
+
+    const updated = await jobCard.save();
     return res.json(updated);
   } catch (error) {
     return next(error);
