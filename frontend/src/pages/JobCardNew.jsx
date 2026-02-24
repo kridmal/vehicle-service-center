@@ -9,7 +9,9 @@ import {
   formatFreeLaborRewardLabel,
 } from "../utils/loyaltyPricing.js";
 import {
-  computeLaborSubtotalFromServices,
+  computeLaborSubtotalFromTasks,
+  flattenServiceTasks,
+  getTaskInstanceId,
   roundCurrency as roundTaskCurrency,
   toNonNegativeNumber,
 } from "../utils/taskLabor.js";
@@ -252,9 +254,28 @@ function JobCardNew() {
 
   const previewCustomerMongoId = previewOwner?.mongoId || "";
 
-  const laborChargesOriginal = useMemo(
-    () => computeLaborSubtotalFromServices(selectedServices),
+  const jobCardTasks = useMemo(
+    () =>
+      flattenServiceTasks(selectedServices).map((task) => ({
+        ...task,
+        id: task.taskInstanceId || task.id,
+        selected:
+          task.selected !== undefined
+            ? Boolean(task.selected)
+            : Boolean(task.completed),
+        billable:
+          task.billable !== undefined
+            ? Boolean(task.billable)
+            : task.isBillable !== false,
+        laborHours: roundTaskCurrency(toNonNegativeNumber(task.laborHours)),
+        laborCharge: roundTaskCurrency(toNonNegativeNumber(task.laborCharge)),
+      })),
     [selectedServices]
+  );
+
+  const laborChargesOriginal = useMemo(
+    () => computeLaborSubtotalFromTasks(jobCardTasks),
+    [jobCardTasks]
   );
 
   const pricingPreview = useMemo(
@@ -355,22 +376,36 @@ function JobCardNew() {
       setServiceTasksDraft([]);
       return;
     }
+    const serviceKey = String(selectedService._id || selectedService.id || "");
     const tasks = Array.isArray(selectedService.tasks)
       ? selectedService.tasks
-          .map((task) => ({
-            taskId: task._id || task.id || null,
-            taskName: task.title,
-            title: task.title,
-            isRequired: Boolean(task.isRequired),
-            completed: false,
-            laborHours: roundTaskCurrency(
-              toNonNegativeNumber(task.laborHoursDefault)
-            ),
-            laborCharge: roundTaskCurrency(
-              toNonNegativeNumber(task.laborChargeDefault)
-            ),
-            isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
-          }))
+          .map((task, taskIndex) => {
+            const taskId = task._id || task.id || null;
+            return {
+              taskInstanceId: getTaskInstanceId(
+                serviceKey,
+                {
+                  taskId,
+                  title: task.title,
+                  taskName: task.title,
+                },
+                taskIndex
+              ),
+              taskId,
+              taskName: task.title,
+              title: task.title,
+              isRequired: Boolean(task.isRequired),
+              completed: false,
+              laborHours: roundTaskCurrency(
+                toNonNegativeNumber(task.laborHoursDefault)
+              ),
+              laborCharge: roundTaskCurrency(
+                toNonNegativeNumber(task.laborChargeDefault)
+              ),
+              isBillable:
+                task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+            };
+          })
           .filter((task) => task.title)
       : [];
     setServiceTasksDraft(tasks);
@@ -387,16 +422,30 @@ function JobCardNew() {
       return;
     }
     const tasks = serviceTasksDraft
-      .map((task) => ({
-        taskId: task.taskId ? String(task.taskId) : null,
-        taskName: task.taskName || task.title,
-        title: task.title,
-        isRequired: Boolean(task.isRequired),
-        completed: Boolean(task.completed),
-        laborHours: roundTaskCurrency(toNonNegativeNumber(task.laborHours)),
-        laborCharge: roundTaskCurrency(toNonNegativeNumber(task.laborCharge)),
-        isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
-      }))
+      .map((task, taskIndex) => {
+        const taskId = task.taskId ? String(task.taskId) : null;
+        return {
+          taskInstanceId: getTaskInstanceId(
+            serviceKey,
+            {
+              taskInstanceId: task.taskInstanceId,
+              taskId,
+              title: task.title,
+              taskName: task.taskName || task.title,
+            },
+            taskIndex
+          ),
+          taskId,
+          taskName: task.taskName || task.title,
+          title: task.title,
+          isRequired: Boolean(task.isRequired),
+          completed: Boolean(task.completed),
+          laborHours: roundTaskCurrency(toNonNegativeNumber(task.laborHours)),
+          laborCharge: roundTaskCurrency(toNonNegativeNumber(task.laborCharge)),
+          isBillable:
+            task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+        };
+      })
       .filter((task) => task.title);
     setSelectedServices((prev) => [
       ...prev,
@@ -463,6 +512,9 @@ function JobCardNew() {
       })
     );
   };
+
+  const getTaskRowKey = (serviceType, task, taskIndex) =>
+    getTaskInstanceId(String(serviceType || ""), task, taskIndex);
 
   const normalizePreviewReward = (reward) => {
     if (!reward || !reward.ruleId) return null;
@@ -1668,7 +1720,7 @@ function JobCardNew() {
           </div>
 
           <div className="job-card-service-grid">
-            <div>
+            <div className="job-card-service-grid__services">
               <div className="job-card-service-select">
                 <div className="job-card-field">
                   <label htmlFor="job-service">Service Type</label>
@@ -1772,7 +1824,7 @@ function JobCardNew() {
                           </div>
                           {service.tasks.map((task, index) => (
                             <div
-                              key={`${service.serviceType}-${task.title}-${index}`}
+                              key={getTaskRowKey(service.serviceType, task, index)}
                               className="job-card-task-table__row"
                             >
                               <label className="job-card-task-table__task">
@@ -1851,7 +1903,7 @@ function JobCardNew() {
               ) : null}
             </div>
 
-            <div className="job-card-field">
+            <div className="job-card-field job-card-service-grid__notes">
               <label htmlFor="job-notes">Complaints / Notes</label>
               <textarea
                 id="job-notes"

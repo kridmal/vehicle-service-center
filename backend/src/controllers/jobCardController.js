@@ -44,6 +44,26 @@ const normalizeDiscountMode = (value) => {
   return null;
 };
 
+const SERVICE_TYPE_EDITABLE_STATUSES = new Set([
+  "OPEN",
+  "IN_PROGRESS",
+  "PENDING",
+]);
+
+const resolveTaskSelected = (task) => {
+  if (!task || typeof task !== "object") return false;
+  if (task.selected !== undefined) return Boolean(task.selected);
+  if (task.completed !== undefined) return Boolean(task.completed);
+  return false;
+};
+
+const resolveTaskBillable = (task) => {
+  if (!task || typeof task !== "object") return true;
+  if (task.billable !== undefined) return Boolean(task.billable);
+  if (task.isBillable !== undefined) return Boolean(task.isBillable);
+  return true;
+};
+
 const normalizeServiceTasks = (tasks = []) =>
   tasks
     .map((task) => {
@@ -55,9 +75,11 @@ const normalizeServiceTasks = (tasks = []) =>
           taskName: title,
           title,
           isRequired: false,
+          selected: false,
           completed: false,
           laborHours: 0,
           laborCharge: 0,
+          billable: true,
           isBillable: true,
         };
       }
@@ -67,20 +89,24 @@ const normalizeServiceTasks = (tasks = []) =>
       if (!title) return null;
 
       const taskId = task.taskId || task._id || task.id || null;
+      const selected = resolveTaskSelected(task);
+      const billable = resolveTaskBillable(task);
 
       return {
         taskId: taskId ? String(taskId) : null,
         taskName: title,
         title,
         isRequired: Boolean(task.isRequired),
-        completed: Boolean(task.completed),
+        selected,
+        completed: selected,
         laborHours: roundCurrency(
           toNonNegativeNumber(task.laborHours ?? task.laborHoursDefault)
         ),
         laborCharge: roundCurrency(
           toNonNegativeNumber(task.laborCharge ?? task.laborChargeDefault)
         ),
-        isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+        billable,
+        isBillable: billable,
       };
     })
     .filter((task) => task && task.title);
@@ -887,10 +913,14 @@ export const addJobCardServiceTypes = async (req, res, next) => {
       return res.status(404).json({ message: "Job card not found" });
     }
 
-    if (jobCard.status !== "OPEN") {
+    const currentStatus = String(jobCard.status || "OPEN").toUpperCase();
+    if (!SERVICE_TYPE_EDITABLE_STATUSES.has(currentStatus)) {
       return res
         .status(400)
-        .json({ message: "Cannot modify service types after completion" });
+        .json({
+          message:
+            "Service types can only be modified while status is OPEN, IN_PROGRESS, or PENDING",
+        });
     }
 
     const existingServiceTypeIds = new Set(collectServiceTypeIds(jobCard.services || []));

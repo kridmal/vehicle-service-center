@@ -13,8 +13,9 @@ import {
 import {
   computeLaborTotals,
   flattenServiceTasks,
-  hasPositiveTaskLaborCharge,
   hasTaskLaborMetadata,
+  isTaskBillable,
+  isTaskSelected,
   toNonNegativeNumber,
 } from "../utils/laborTotals.js";
 
@@ -140,9 +141,11 @@ const normalizeInvoiceTaskSnapshot = (task) => {
       taskName: title,
       title,
       isRequired: false,
+      selected: false,
       completed: false,
       laborHours: 0,
       laborCharge: 0,
+      billable: true,
       isBillable: true,
     };
   }
@@ -152,16 +155,20 @@ const normalizeInvoiceTaskSnapshot = (task) => {
   if (!title) return null;
 
   const taskId = task.taskId || task._id || task.id || null;
+  const selected = isTaskSelected(task);
+  const billable = isTaskBillable(task);
 
   return {
     taskId: taskId ? String(taskId) : null,
     taskName: title,
     title,
     isRequired: Boolean(task.isRequired),
-    completed: Boolean(task.completed),
+    selected,
+    completed: selected,
     laborHours: roundCurrency(toNonNegativeNumber(task.laborHours)),
     laborCharge: roundCurrency(toNonNegativeNumber(task.laborCharge)),
-    isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+    billable,
+    isBillable: billable,
   };
 };
 
@@ -189,20 +196,60 @@ const normalizeInvoiceServiceSnapshot = (services = []) =>
     })
     .filter(Boolean);
 
-const resolveInvoiceLaborChargesOriginal = ({ jobCard, jobCardServices = [] }) => {
+const buildInvoiceLaborItems = (jobCardServices = []) =>
+  (Array.isArray(jobCardServices) ? jobCardServices : []).flatMap(
+    (service, serviceIndex) => {
+      const serviceType = String(service?.serviceType || "").trim();
+      const serviceName = String(service?.serviceName || "").trim();
+      const tasks = Array.isArray(service?.tasks) ? service.tasks : [];
+
+      return tasks
+        .filter((task) => isTaskSelected(task) && isTaskBillable(task))
+        .map((task, taskIndex) => {
+          const taskName = String(task?.taskName || task?.title || "").trim();
+          if (!taskName) return null;
+          return {
+            taskId: task?.taskId ? String(task.taskId) : null,
+            taskName,
+            description: taskName,
+            serviceType,
+            serviceName,
+            laborHours: roundCurrency(toNonNegativeNumber(task?.laborHours)),
+            amount: roundCurrency(toNonNegativeNumber(task?.laborCharge)),
+            order:
+              serviceIndex * 1000 +
+              taskIndex,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.order - b.order)
+        .map(({ order, ...item }) => item);
+    }
+  );
+
+const resolveInvoiceLaborChargesOriginal = ({
+  jobCard,
+  jobCardServices = [],
+  laborItems = [],
+}) => {
   const fallback = roundCurrency(
     toNonNegativeNumber(jobCard?.laborChargesOriginal ?? jobCard?.laborCharges)
   );
 
   const hasMetadata = hasTaskLaborMetadata(jobCard?.services || []);
-  const hasPositiveLabor = hasPositiveTaskLaborCharge(jobCard?.services || []);
 
-  if (!hasMetadata || (!hasPositiveLabor && fallback > 0)) {
+  if (!hasMetadata) {
     return fallback;
   }
 
-  const taskTotals = computeLaborTotals(flattenServiceTasks(jobCardServices));
-  return roundCurrency(taskTotals.laborSubtotalOriginal);
+  if (!Array.isArray(laborItems) || laborItems.length === 0) {
+    const taskTotals = computeLaborTotals(flattenServiceTasks(jobCardServices));
+    return roundCurrency(taskTotals.laborSubtotalOriginal);
+  }
+
+  return roundCurrency(
+    laborItems.reduce((sum, item) => sum + toNonNegativeNumber(item?.amount), 0)
+  );
 };
 
 const mapAppliedRewardsForInvoice = (appliedRewards, laborDiscount) => {
@@ -228,7 +275,12 @@ const mapAppliedRewardsForInvoice = (appliedRewards, laborDiscount) => {
   ];
 };
 
-const buildInvoicePricingSnapshot = ({ jobCard, partsUsed, jobCardServices }) => {
+const buildInvoicePricingSnapshot = ({
+  jobCard,
+  partsUsed,
+  jobCardServices,
+  laborItems,
+}) => {
   const partsSubtotalOriginal = partsUsed.reduce(
     (sum, item) => sum + toNumber(item.lineTotalOriginal),
     0
@@ -244,6 +296,7 @@ const buildInvoicePricingSnapshot = ({ jobCard, partsUsed, jobCardServices }) =>
   const laborChargesOriginal = resolveInvoiceLaborChargesOriginal({
     jobCard,
     jobCardServices,
+    laborItems,
   });
 
   const pricing = deriveLoyaltyPricing({
@@ -268,6 +321,67 @@ const buildInvoicePricingSnapshot = ({ jobCard, partsUsed, jobCardServices }) =>
     totalAmount: pricing.grandTotal,
     appliedRewards,
   };
+};
+
+const syncDraftInvoiceFromJobCard = async (invoice) => {
+  if (!invoice?.jobCard) return invoice;
+
+  const jobCard = await JobCard.findById(invoice.jobCard);
+  if (!jobCard) {
+    throw makeHttpError(404, "Job card not found for invoice sync");
+  }
+
+  const inventoryIds = (jobCard.partsUsed || [])
+    .map((part) => part.inventoryId)
+    .filter(Boolean);
+  const skuList = (jobCard.partsUsed || [])
+    .map((part) => part.sku)
+    .filter(Boolean);
+  const inventoryQuery = [
+    inventoryIds.length ? { _id: { $in: inventoryIds } } : null,
+    skuList.length ? { sku: { $in: skuList } } : null,
+  ].filter(Boolean);
+  const inventoryItems =
+    inventoryQuery.length === 0
+      ? []
+      : await InventoryItem.find({ $or: inventoryQuery });
+
+  const partsUsed = buildPartsUsed(jobCard.partsUsed || [], inventoryItems);
+  const missingPart = partsUsed.find((entry) => entry?.error);
+  if (missingPart) {
+    throw makeHttpError(400, missingPart.error);
+  }
+
+  const jobCardServices = normalizeInvoiceServiceSnapshot(jobCard.services || []);
+  const laborItems = buildInvoiceLaborItems(jobCardServices);
+  const pricing = buildInvoicePricingSnapshot({
+    jobCard,
+    partsUsed,
+    jobCardServices,
+    laborItems,
+  });
+
+  invoice.jobCardNo = jobCard.jobCardNo || invoice.jobCardNo;
+  invoice.items = partsUsed;
+  invoice.partsUsed = partsUsed;
+  invoice.jobCardServices = jobCardServices;
+  invoice.laborItems = laborItems;
+  invoice.subtotalPartsOriginal = pricing.partsSubtotalOriginal;
+  invoice.partsDiscountTotal = pricing.partsDiscountTotal;
+  invoice.subtotalParts = pricing.partsSubtotal;
+  invoice.laborCharges = pricing.laborChargesOriginal;
+  invoice.laborChargesOriginal = pricing.laborChargesOriginal;
+  invoice.loyaltyLaborDiscount = pricing.loyaltyLaborDiscount;
+  invoice.laborChargesNet = pricing.laborChargesNet;
+  invoice.subtotal = pricing.subtotal;
+  invoice.discount = pricing.loyaltyLaborDiscount;
+  invoice.totalAmount = pricing.totalAmount;
+  invoice.appliedRewards = pricing.appliedRewards;
+  invoice.balanceAmount = roundCurrency(
+    Math.max(0, pricing.totalAmount - toNumber(invoice.paidAmount))
+  );
+
+  return invoice.save();
 };
 
 const makeHttpError = (status, message) => {
@@ -432,11 +546,13 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
     }
 
     const jobCardServices = normalizeInvoiceServiceSnapshot(jobCard.services || []);
+    const laborItems = buildInvoiceLaborItems(jobCardServices);
 
     const pricing = buildInvoicePricingSnapshot({
       jobCard,
       partsUsed,
       jobCardServices,
+      laborItems,
     });
 
     const ownerCandidate = jobCard.ownerId || jobCard.customerId;
@@ -465,6 +581,7 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
       items: partsUsed,
       partsUsed,
       jobCardServices,
+      laborItems,
       subtotalPartsOriginal: pricing.partsSubtotalOriginal,
       partsDiscountTotal: pricing.partsDiscountTotal,
       subtotalParts: pricing.partsSubtotal,
@@ -508,6 +625,16 @@ export const updateInvoice = async (req, res, next) => {
       }
     }
 
+    if (req.body.syncFromJobCard === true) {
+      if (invoice.status === "FINALIZED" || invoice.paymentStatus === "PAID") {
+        return res.status(400).json({
+          message: "Only draft unpaid invoices can be synchronized",
+        });
+      }
+      invoice = await syncDraftInvoiceFromJobCard(invoice);
+      return res.json(invoice);
+    }
+
     if (req.body.status) {
       if (req.body.status !== "FINALIZED") {
         return res.status(400).json({ message: "Invalid invoice status" });
@@ -515,6 +642,8 @@ export const updateInvoice = async (req, res, next) => {
       if (invoice.status === "FINALIZED") {
         return res.status(400).json({ message: "Invoice is already finalized" });
       }
+
+      invoice = await syncDraftInvoiceFromJobCard(invoice);
 
       try {
         invoice = await finalizeInvoiceWithLoyalty(id);

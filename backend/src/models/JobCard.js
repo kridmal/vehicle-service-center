@@ -20,9 +20,11 @@ const jobTaskSchema = new mongoose.Schema(
     taskName: { type: String, trim: true },
     title: { type: String, required: true, trim: true },
     isRequired: { type: Boolean, default: false },
+    selected: { type: Boolean, default: false },
     completed: { type: Boolean, default: false },
     laborHours: { type: Number, min: 0, default: 0 },
     laborCharge: { type: Number, min: 0, default: 0 },
+    billable: { type: Boolean, default: true },
     isBillable: { type: Boolean, default: true },
   },
   { _id: false }

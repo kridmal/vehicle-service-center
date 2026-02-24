@@ -10,6 +10,7 @@ const COMPANY_INFO = {
   address: "123 Service Lane, Colombo",
   phone: "+94 11 234 5678",
 };
+const ADDITIONAL_BLANK_TASK_ROWS = 8;
 
 const formatDateTime = (value) => {
   if (!value) return "-";
@@ -118,6 +119,14 @@ function JobCardPrint() {
         }));
       }),
     [serviceEntries]
+  );
+
+  const blankTaskRows = useMemo(
+    () =>
+      Array.from({ length: ADDITIONAL_BLANK_TASK_ROWS }, (_, index) => ({
+        id: `blank-task-row-${index + 1}`,
+      })),
+    []
   );
 
   const partsUsed = Array.isArray(jobCard?.partsUsed) ? jobCard.partsUsed : [];
@@ -293,6 +302,14 @@ function JobCardPrint() {
                     </tr>
                   ))
                 )}
+                {blankTaskRows.map((blankRow) => (
+                  <tr key={blankRow.id} className="job-card-print-table__blank-row">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </section>

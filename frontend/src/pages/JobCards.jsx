@@ -10,6 +10,7 @@ import {
 import { computeItemDiscount } from "../utils/itemDiscount.js";
 import {
   computeLaborSubtotalFromServices,
+  getTaskInstanceId,
   hasPositiveTaskLaborCharge,
   hasTaskLaborMetadata,
   normalizeServicesSnapshot,
@@ -20,6 +21,7 @@ import { getJobCards, saveJobCards } from "../utils/storage.js";
 import "./JobCards.css";
 
 function JobCards() {
+  const serviceTypeEditableStatuses = ["OPEN", "IN_PROGRESS", "PENDING"];
   const [allJobs, setAllJobs] = useState([]);
   const [filteredJobs, setFilteredJobs] = useState([]);
   const [customers] = useLocalStorageState("ksc_customers", []);
@@ -408,8 +410,11 @@ function JobCards() {
   const handleAddServiceType = async () => {
     if (!activeJobCard || !serviceTypeToAdd) return;
 
-    if ((activeJobCard.status || "OPEN") !== "OPEN") {
-      setServiceTypeAddError("Service types can only be modified while status is OPEN.");
+    const activeStatus = String(activeJobCard.status || "OPEN").toUpperCase();
+    if (!serviceTypeEditableStatuses.includes(activeStatus)) {
+      setServiceTypeAddError(
+        "Service types can only be modified while status is OPEN, IN_PROGRESS, or PENDING."
+      );
       return;
     }
 
@@ -513,8 +518,38 @@ function JobCards() {
     }
   };
 
+  const handleRemoveServiceType = (serviceType) => {
+    if (!canAddServiceTypes) return;
+
+    const normalizedServiceType = String(serviceType || "").trim();
+    if (!normalizedServiceType) return;
+
+    if (jobServices.length <= 1) {
+      setServiceTypeAddError("At least one service type is required.");
+      return;
+    }
+
+    const serviceNameToRemove =
+      lookup.serviceMap.get(normalizedServiceType)?.name || "this service type";
+    const shouldRemove = window.confirm(
+      `Remove "${serviceNameToRemove}" from this job card? Save Job Card to persist the change.`
+    );
+    if (!shouldRemove) return;
+
+    setServiceTypeAddError("");
+    setJobServices((prev) =>
+      prev.filter(
+        (service) => String(service?.serviceType || "").trim() !== normalizedServiceType
+      )
+    );
+    setTaskLaborTouched(true);
+  };
+
   const resolveServiceName = (service) =>
     lookup.serviceMap.get(String(service.serviceType))?.name || "Service";
+
+  const getTaskRowKey = (serviceType, task, taskIndex) =>
+    getTaskInstanceId(String(serviceType || ""), task, taskIndex);
 
   const currentServiceTypeIds = useMemo(
     () =>
@@ -1006,7 +1041,10 @@ function JobCards() {
     (activeJobCard?.status === "COMPLETED" || jobStatus === "COMPLETED") &&
     !isPaidInvoice;
   const isReadOnly = isLockedStatus || isPaidInvoice;
-  const canAddServiceTypes = activeJobCard?.status === "OPEN" && !isReadOnly;
+  const canAddServiceTypes =
+    serviceTypeEditableStatuses.includes(
+      String(activeJobCard?.status || "OPEN").toUpperCase()
+    ) && !isReadOnly;
   const isServiceTypeSelectionDisabled =
     !canAddServiceTypes ||
     !activeJobCard?.mongoId ||
@@ -1240,7 +1278,7 @@ function JobCards() {
                 </div>
               ) : (
                 <p className="job-card-modal__muted">
-                  Additional service types are disabled once the job is not OPEN.
+                  Additional service types are disabled once the job is COMPLETED or CLOSED.
                 </p>
               )}
               {serviceTypeAddError ? (
@@ -1259,11 +1297,22 @@ function JobCards() {
                     >
                       <div className="job-card-modal__service-head">
                         <strong>{resolveServiceName(service)}</strong>
-                        <span>
-                          {service.tasks?.length
-                            ? `${service.tasks.length} tasks`
-                            : "No tasks"}
-                        </span>
+                        <div className="job-card-modal__service-meta">
+                          <span>
+                            {service.tasks?.length
+                              ? `${service.tasks.length} tasks`
+                              : "No tasks"}
+                          </span>
+                          {canAddServiceTypes ? (
+                            <button
+                              type="button"
+                              className="job-card-modal__service-remove"
+                              onClick={() => handleRemoveServiceType(service.serviceType)}
+                            >
+                              Remove service
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                       {service.tasks?.length ? (
                         <div className="job-card-task-table">
@@ -1275,7 +1324,11 @@ function JobCards() {
                           </div>
                           {service.tasks.map((task, taskIndex) => (
                             <div
-                              key={`${service.serviceType}-${task.title}-${taskIndex}`}
+                              key={getTaskRowKey(
+                                service.serviceType,
+                                task,
+                                taskIndex
+                              )}
                               className="job-card-task-table__row"
                             >
                               <label className="job-card-task-table__task">

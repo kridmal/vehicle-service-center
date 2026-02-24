@@ -353,8 +353,12 @@
 
 .job-card-service-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
   gap: 18px;
+}
+
+.job-card-service-grid__services {
+  container-type: inline-size;
 }
 
 .job-card-service-select {
@@ -455,7 +459,7 @@
 .job-card-task-table__head,
 .job-card-task-table__row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(100px, 0.7fr) minmax(130px, 0.8fr) minmax(90px, 0.5fr);
+  grid-template-columns: minmax(0, 1fr) 120px 130px 90px;
   gap: 10px;
   align-items: center;
 }
@@ -482,6 +486,13 @@
   gap: 8px;
   font-size: 13px;
   color: #334155;
+  min-width: 0;
+}
+
+.job-card-task-table__task span {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .job-card-task-table__task input {
@@ -490,6 +501,8 @@
 
 .job-card-task-table__row input[type="number"] {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border-radius: 8px;
   border: 1px solid #cbd5e1;
   background: #f8fafc;
@@ -499,15 +512,68 @@
 }
 
 .job-card-task-table__billable {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: flex-start;
+  min-height: 38px;
   gap: 6px;
   font-size: 12px;
   color: #334155;
+  white-space: nowrap;
 }
 
 .job-card-task-table__billable input {
   accent-color: #2563eb;
+}
+
+@container (max-width: 700px) {
+  .job-card-task-table__head,
+  .job-card-task-table__row {
+    grid-template-columns: minmax(0, 1fr) 96px 108px 74px;
+    gap: 8px;
+  }
+
+  .job-card-task-table__row input[type="number"] {
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+
+  .job-card-task-table__billable {
+    min-height: 0;
+    font-size: 11px;
+  }
+}
+
+@container (max-width: 560px) {
+  .job-card-task-table__head {
+    display: none;
+  }
+
+  .job-card-task-table__row {
+    grid-template-columns: minmax(0, 1fr) 1fr 1fr auto;
+    grid-template-areas:
+      "task task task task"
+      "hours charge billable billable";
+    gap: 8px;
+    align-items: center;
+  }
+
+  .job-card-task-table__task {
+    grid-area: task;
+  }
+
+  .job-card-task-table__row > input[type="number"]:nth-of-type(1) {
+    grid-area: hours;
+  }
+
+  .job-card-task-table__row > input[type="number"]:nth-of-type(2) {
+    grid-area: charge;
+  }
+
+  .job-card-task-table__billable {
+    grid-area: billable;
+    justify-self: start;
+  }
 }
 
 .job-card-labor-summary {
@@ -780,7 +846,8 @@
 
   .job-card-task-table__head,
   .job-card-task-table__row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 108px 120px 80px;
+    gap: 10px;
   }
 }
 
@@ -811,5 +878,21 @@
 
   .job-card-task-table__head {
     display: none;
+  }
+
+  .job-card-task-table__row {
+    grid-template-columns: minmax(0, 1fr) 92px 104px 72px;
+    gap: 8px;
+  }
+
+  .job-card-task-table__row input[type="number"] {
+    max-width: none;
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+
+  .job-card-task-table__billable {
+    min-height: 0;
+    font-size: 11px;
   }
 }

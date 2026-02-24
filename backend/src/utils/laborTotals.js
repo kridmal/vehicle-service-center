@@ -8,6 +8,20 @@ export const roundCurrency = (value) =>
 
 export const toNonNegativeNumber = (value) => Math.max(0, toNumber(value));
 
+export const isTaskSelected = (task) => {
+  if (!task || typeof task !== "object") return false;
+  if (task.selected !== undefined) return Boolean(task.selected);
+  if (task.completed !== undefined) return Boolean(task.completed);
+  return false;
+};
+
+export const isTaskBillable = (task) => {
+  if (!task || typeof task !== "object") return true;
+  if (task.billable !== undefined) return Boolean(task.billable);
+  if (task.isBillable !== undefined) return Boolean(task.isBillable);
+  return true;
+};
+
 const toTaskObject = (task) => {
   if (!task) return null;
   if (typeof task === "string") {
@@ -36,8 +50,10 @@ export const hasTaskLaborMetadata = (services = []) =>
     return (
       task.taskId !== undefined ||
       task.taskName !== undefined ||
+      task.selected !== undefined ||
       task.laborHours !== undefined ||
       task.laborCharge !== undefined ||
+      task.billable !== undefined ||
       task.isBillable !== undefined
     );
   });
@@ -52,7 +68,8 @@ export const computeLaborTotals = (jobCardTasks = []) => {
 
   const laborSubtotalOriginal = tasks.reduce((sum, task) => {
     if (!task || typeof task !== "object") return sum;
-    if (task.isBillable === false) return sum;
+    if (!isTaskSelected(task)) return sum;
+    if (!isTaskBillable(task)) return sum;
     return roundCurrency(sum + toNonNegativeNumber(task.laborCharge));
   }, 0);
 

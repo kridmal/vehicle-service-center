@@ -205,6 +205,10 @@
   background: #f3f4f6;
 }
 
+.job-card-print-table__blank-row td {
+  height: 24px;
+}
+
 .job-card-print-footer {
   margin-top: 8px;
   display: grid;

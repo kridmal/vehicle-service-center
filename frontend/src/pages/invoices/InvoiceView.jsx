@@ -136,13 +136,44 @@ function InvoiceView() {
       ? localJobCard.services
       : []) || [];
   const serviceList = Array.isArray(serviceEntries) ? serviceEntries.filter(Boolean) : [];
-  const laborRows = serviceList.flatMap((service, serviceIndex) => {
+
+  const isTaskSelected = (task) => {
+    if (!task || typeof task !== "object") return false;
+    if (task.selected !== undefined) return Boolean(task.selected);
+    if (task.completed !== undefined) return Boolean(task.completed);
+    return false;
+  };
+
+  const isTaskBillable = (task) => {
+    if (!task || typeof task !== "object") return true;
+    if (task.billable !== undefined) return Boolean(task.billable);
+    if (task.isBillable !== undefined) return Boolean(task.isBillable);
+    return true;
+  };
+
+  const laborRowsFromInvoice = Array.isArray(invoice.laborItems)
+    ? invoice.laborItems
+        .map((item, index) => {
+          const description = String(
+            item?.description || item?.taskName || ""
+          ).trim();
+          if (!description) return null;
+          return {
+            id: `${item?.taskId || description}-${index}`,
+            description,
+            amount: Math.max(0, Number(item?.amount) || 0),
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  const laborRowsFromServices = serviceList.flatMap((service, serviceIndex) => {
     const tasks = Array.isArray(service?.tasks) ? service.tasks : [];
     return tasks
       .map((task, taskIndex) => {
         const taskName = String(task?.taskName || task?.title || "").trim();
         if (!taskName) return null;
-        if (task?.isBillable === false) return null;
+        if (!isTaskSelected(task) || !isTaskBillable(task)) return null;
         return {
           id: `${service.serviceType || service._id || serviceIndex}-${taskName}-${taskIndex}`,
           description: taskName,
@@ -151,6 +182,9 @@ function InvoiceView() {
       })
       .filter(Boolean);
   });
+
+  const laborRows =
+    laborRowsFromInvoice.length > 0 ? laborRowsFromInvoice : laborRowsFromServices;
 
   const isPaid = invoice.paymentStatus === "PAID";
   const paymentState =

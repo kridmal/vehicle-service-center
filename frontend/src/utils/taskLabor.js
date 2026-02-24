@@ -11,16 +11,61 @@ export const toNonNegativeNumber = (value) => Math.max(0, toNumber(value));
 const normalizeTaskTitle = (task) =>
   String(task?.taskName || task?.title || "").trim();
 
-export const normalizeTaskSnapshot = (task, defaultCompleted = false) => {
+const normalizeKeyPart = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+
+const resolveTaskSelected = (task, defaultCompleted = false) => {
+  if (!task || typeof task !== "object") return Boolean(defaultCompleted);
+  if (task.selected !== undefined) return Boolean(task.selected);
+  if (task.completed !== undefined) return Boolean(task.completed);
+  return Boolean(defaultCompleted);
+};
+
+const resolveTaskBillable = (task) => {
+  if (!task || typeof task !== "object") return true;
+  if (task.billable !== undefined) return Boolean(task.billable);
+  if (task.isBillable !== undefined) return Boolean(task.isBillable);
+  return true;
+};
+
+const resolveTaskServiceType = (task) =>
+  String(task?.serviceTypeId || task?.serviceType || "").trim();
+
+export const getTaskInstanceId = (serviceType, task, index = 0) => {
+  const explicitId = String(task?.taskInstanceId || task?.id || "").trim();
+  if (explicitId) return explicitId;
+
+  const normalizedServiceType = normalizeKeyPart(serviceType || "service");
+  const baseTaskId =
+    String(task?.taskId || task?._id || "").trim() ||
+    normalizeKeyPart(normalizeTaskTitle(task) || "task");
+
+  return `${normalizedServiceType}:${normalizeKeyPart(baseTaskId)}:${index}`;
+};
+
+export const normalizeTaskSnapshot = (
+  task,
+  defaultCompleted = false,
+  context = {}
+) => {
+  const serviceType = String(context.serviceType || "").trim();
+  const taskIndex = Number.isFinite(Number(context.taskIndex))
+    ? Number(context.taskIndex)
+    : 0;
+
   if (typeof task === "string") {
     const title = task.trim();
     if (!title) return null;
     return {
+      taskInstanceId: getTaskInstanceId(serviceType, { title }, taskIndex),
       taskId: null,
       taskName: title,
       title,
       isRequired: false,
-      completed: defaultCompleted,
+      completed: resolveTaskSelected(null, defaultCompleted),
       laborHours: 0,
       laborCharge: 0,
       isBillable: true,
@@ -33,17 +78,18 @@ export const normalizeTaskSnapshot = (task, defaultCompleted = false) => {
   if (!title) return null;
 
   const taskId = task.taskId || task._id || task.id || null;
+  const taskInstanceId = getTaskInstanceId(serviceType, task, taskIndex);
 
   return {
+    taskInstanceId,
     taskId: taskId ? String(taskId) : null,
     taskName: title,
     title,
     isRequired: Boolean(task.isRequired),
-    completed:
-      task.completed !== undefined ? Boolean(task.completed) : defaultCompleted,
+    completed: resolveTaskSelected(task, defaultCompleted),
     laborHours: roundCurrency(toNonNegativeNumber(task.laborHours)),
     laborCharge: roundCurrency(toNonNegativeNumber(task.laborCharge)),
-    isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+    isBillable: resolveTaskBillable(task),
   };
 };
 
@@ -63,7 +109,12 @@ export const normalizeServiceSnapshot = (service, defaultCompleted = false) => {
 
   const tasks = Array.isArray(service.tasks)
     ? service.tasks
-        .map((task) => normalizeTaskSnapshot(task, defaultCompleted))
+        .map((task, taskIndex) =>
+          normalizeTaskSnapshot(task, defaultCompleted, {
+            serviceType,
+            taskIndex,
+          })
+        )
         .filter(Boolean)
     : [];
 
@@ -80,9 +131,23 @@ export const normalizeServicesSnapshot = (services = [], defaultCompleted = fals
     .filter(Boolean);
 
 export const flattenServiceTasks = (services = []) =>
-  (Array.isArray(services) ? services : []).flatMap((service) =>
-    Array.isArray(service?.tasks) ? service.tasks.filter(Boolean) : []
-  );
+  (Array.isArray(services) ? services : []).flatMap((service) => {
+    const serviceTypeId = String(service?.serviceType || "").trim();
+    const tasks = Array.isArray(service?.tasks) ? service.tasks : [];
+
+    return tasks
+      .map((task, index) => {
+        if (!task) return null;
+
+        const taskInstanceId = getTaskInstanceId(serviceTypeId, task, index);
+        return {
+          ...task,
+          serviceTypeId,
+          taskInstanceId,
+        };
+      })
+      .filter(Boolean);
+  });
 
 export const hasTaskLaborMetadata = (services = []) =>
   flattenServiceTasks(services).some(
@@ -100,13 +165,29 @@ export const hasPositiveTaskLaborCharge = (services = []) =>
     (task) => toNonNegativeNumber(task?.laborCharge) > 0
   );
 
-export const computeLaborSubtotalFromTasks = (tasks = []) =>
-  roundCurrency(
-    (Array.isArray(tasks) ? tasks : []).reduce((sum, task) => {
-      if (!task || task.isBillable === false) return sum;
+export const computeLaborSubtotalFromTasks = (tasks = []) => {
+  const seenTaskKeys = new Set();
+
+  return roundCurrency(
+    (Array.isArray(tasks) ? tasks : []).reduce((sum, task, index) => {
+      if (!task) return sum;
+
+      const serviceType =
+        resolveTaskServiceType(task) || String(task?.serviceType || "").trim();
+      const dedupeKey =
+        String(task.taskInstanceId || "").trim() ||
+        getTaskInstanceId(serviceType, task, index);
+
+      if (seenTaskKeys.has(dedupeKey)) return sum;
+      seenTaskKeys.add(dedupeKey);
+
+      if (!resolveTaskSelected(task, false)) return sum;
+      if (!resolveTaskBillable(task)) return sum;
+
       return sum + toNonNegativeNumber(task.laborCharge);
     }, 0)
   );
+};
 
 export const computeLaborSubtotalFromServices = (services = []) =>
   computeLaborSubtotalFromTasks(flattenServiceTasks(services));

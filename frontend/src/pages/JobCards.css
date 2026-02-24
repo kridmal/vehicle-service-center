@@ -626,6 +626,27 @@
   color: #64748b;
 }
 
+.job-card-modal__service-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-card-modal__service-remove {
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.job-card-modal__service-remove:hover {
+  background: #ffe4e6;
+}
+
 .job-card-service-type-add {
   display: flex;
   flex-direction: column;
@@ -652,7 +673,7 @@
 .job-card-task-table__head,
 .job-card-task-table__row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(100px, 0.7fr) minmax(130px, 0.8fr) minmax(90px, 0.5fr);
+  grid-template-columns: minmax(0, 1fr) 120px 130px 90px;
   gap: 10px;
   align-items: center;
 }
@@ -679,6 +700,13 @@
   gap: 8px;
   font-size: 13px;
   color: #334155;
+  min-width: 0;
+}
+
+.job-card-task-table__task span {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .job-card-task-table__task input {
@@ -687,6 +715,8 @@
 
 .job-card-task-table__row input[type="number"] {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border-radius: 8px;
   border: 1px solid #cbd5e1;
   background: #f8fafc;
@@ -696,11 +726,14 @@
 }
 
 .job-card-task-table__billable {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: flex-start;
+  min-height: 38px;
   gap: 6px;
   font-size: 12px;
   color: #334155;
+  white-space: nowrap;
 }
 
 .job-card-task-table__billable input {
@@ -971,7 +1004,8 @@
 
   .job-card-task-table__head,
   .job-card-task-table__row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 108px 120px 80px;
+    gap: 10px;
   }
 
   .job-card-service-type-add__controls {
@@ -1007,6 +1041,22 @@
 @media (max-width: 640px) {
   .job-card-task-table__head {
     display: none;
+  }
+
+  .job-card-task-table__row {
+    grid-template-columns: minmax(0, 1fr) 92px 104px 72px;
+    gap: 8px;
+  }
+
+  .job-card-task-table__row input[type="number"] {
+    max-width: none;
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+
+  .job-card-task-table__billable {
+    min-height: 0;
+    font-size: 11px;
   }
 
   .materials-add {
