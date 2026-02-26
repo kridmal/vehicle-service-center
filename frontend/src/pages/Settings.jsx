@@ -12,6 +12,10 @@ function Settings() {
       halfDayMinimumHours: 4,
       defaultWorkingHours: 8,
     },
+    payrollSettings: {
+      standardDailyHours: 8,
+      otRatePerHour: 0,
+    },
     salaryComponents: {
       allowances: [],
       deductions: [],
@@ -109,6 +113,50 @@ function Settings() {
                   attendanceRules: {
                     ...prev.attendanceRules,
                     defaultWorkingHours: Number(e.target.value || 0),
+                  },
+                }))
+              }
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="workers-card">
+        <div className="workers-card__head">
+          <h2>Payroll Settings</h2>
+        </div>
+        <div className="workers-grid">
+          <div className="workers-field">
+            <label>Standard Daily Hours</label>
+            <input
+              type="number"
+              min="0"
+              step="0.25"
+              value={settings.payrollSettings?.standardDailyHours ?? 8}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  payrollSettings: {
+                    ...prev.payrollSettings,
+                    standardDailyHours: Number(e.target.value || 0),
+                  },
+                }))
+              }
+            />
+          </div>
+          <div className="workers-field">
+            <label>Default OT Rate Per Hour (LKR)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={settings.payrollSettings?.otRatePerHour ?? 0}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  payrollSettings: {
+                    ...prev.payrollSettings,
+                    otRatePerHour: Number(e.target.value || 0),
                   },
                 }))
               }

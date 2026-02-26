@@ -4,12 +4,14 @@ import {
   createStaff,
   deleteStaff,
   listStaff,
+  searchStaff,
   updateStaff,
 } from "../controllers/staffController.js";
 
 const router = express.Router();
 
 router.get("/", requireAuth, listStaff);
+router.get("/search", requireAuth, searchStaff);
 router.post("/", requireAuth, requireOwner, createStaff);
 router.patch("/:id", requireAuth, requireOwner, updateStaff);
 router.delete("/:id", requireAuth, requireOwner, deleteStaff);

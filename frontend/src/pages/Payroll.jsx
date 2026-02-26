@@ -38,6 +38,7 @@ function Payroll() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState("");
+  const [otEnabled, setOtEnabled] = useState(false);
 
   const monthPast = useMemo(() => isPastMonth(month), [month]);
 
@@ -53,6 +54,9 @@ function Payroll() {
     setFinalization(finalizationRes.data || null);
     setRun(payrollRes.data?.run || null);
     setLines(Array.isArray(payrollRes.data?.lines) ? payrollRes.data.lines : []);
+    if (payrollRes.data?.run?.otEnabled !== undefined) {
+      setOtEnabled(Boolean(payrollRes.data.run.otEnabled));
+    }
   };
 
   useEffect(() => {
@@ -91,12 +95,30 @@ function Payroll() {
   const generatePayroll = async () => {
     if (!monthPast) return;
     const { year, month: monthNumber } = parseMonthValue(month);
+    const regenerate = run?.status === "DRAFT";
+    if (regenerate) {
+      const shouldRegenerate = window.confirm(
+        "A draft payroll run already exists for this month. Regenerate and replace it?"
+      );
+      if (!shouldRegenerate) return;
+    }
     setActionLoading("generate");
     setError("");
     setMessage("");
     try {
-      const { data } = await api.post("/payroll/generate", { year, month: monthNumber });
-      setMessage(`Payroll generated for ${month}. ${data.lineCount || 0} employees.`);
+      const { data } = await api.post("/payroll/generate", {
+        year,
+        month: monthNumber,
+        otEnabled,
+        regenerate,
+      });
+      setMessage(
+        `Payroll ${regenerate ? "regenerated" : "generated"} for ${month}. ${
+          data.lineCount || 0
+        } employees. OT ${
+          otEnabled ? "enabled" : "disabled"
+        }.`
+      );
       await load();
     } catch (err) {
       setError(err.response?.data?.message || "Unable to generate payroll.");
@@ -210,13 +232,24 @@ function Payroll() {
         <div className="payroll-card__head">
           <h2>Generate Payroll</h2>
         </div>
+        <div className="payroll-field">
+          <label className="payroll-toggle">
+            <input
+              type="checkbox"
+              checked={otEnabled}
+              onChange={(event) => setOtEnabled(event.target.checked)}
+              disabled={actionLoading === "generate"}
+            />
+            <span>Enable OT/Incentive for this payroll run</span>
+          </label>
+        </div>
         <div className="payroll-actions">
           <button
             type="button"
             onClick={generatePayroll}
             disabled={!monthPast || !calendarFound || !finalization?.finalized || actionLoading === "generate"}
           >
-            Generate Payroll
+            {run?.status === "DRAFT" ? "Regenerate Payroll" : "Generate Payroll"}
           </button>
         </div>
       </section>
@@ -253,6 +286,11 @@ function Payroll() {
                   <th>Present</th>
                   <th>Absent</th>
                   <th>LOP Days</th>
+                  <th>Labor Hours</th>
+                  <th>Target Hours</th>
+                  <th>OT Hours</th>
+                  <th>OT Amount</th>
+                  <th>Advance Deduction</th>
                   <th>Gross</th>
                   <th>Deductions</th>
                   <th>Net Pay</th>
@@ -269,6 +307,11 @@ function Payroll() {
                     <td>{line.attendanceSummary?.presentDays || 0}</td>
                     <td>{line.attendanceSummary?.absentDays || 0}</td>
                     <td>{line.deductions?.lopDays || 0}</td>
+                    <td>{line.performanceSummary?.monthlyLaborHours || 0}</td>
+                    <td>{line.performanceSummary?.targetHours || 0}</td>
+                    <td>{line.performanceSummary?.overtimeHours || 0}</td>
+                    <td>{formatMoney(line.performanceSummary?.otAmount)}</td>
+                    <td>{formatMoney(line.advanceDeduction?.advanceDeductionTotal)}</td>
                     <td>{formatMoney(line.payComponents?.grossPay)}</td>
                     <td>{formatMoney(line.deductions?.totalDeductions)}</td>
                     <td>{formatMoney(line.netPay)}</td>

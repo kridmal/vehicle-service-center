@@ -90,3 +90,33 @@ export const requireSalesAccess = async (req, res, next) => {
     return next(error);
   }
 };
+
+export const requirePayrollAccess = async (req, res, next) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Not authorized" });
+    }
+
+    const user = await User.findById(req.user.id).select("role roleId permissions");
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    if (user.role === "OWNER") {
+      return next();
+    }
+
+    let role = null;
+    if (user.roleId) {
+      role = await Role.findById(user.roleId).select("permissions");
+    }
+    const permissions = mergePermissions(role?.permissions, user.permissions);
+    if (!permissions.runPayroll) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};

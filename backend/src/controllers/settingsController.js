@@ -7,6 +7,10 @@ const DEFAULT_SETTINGS = {
     halfDayMinimumHours: 4,
     defaultWorkingHours: 8,
   },
+  payrollSettings: {
+    standardDailyHours: 8,
+    otRatePerHour: 0,
+  },
   salaryComponents: {
     allowances: [
       { id: "transport", name: "Transport Allowance", defaultAmount: 0 },
@@ -24,7 +28,7 @@ const DEFAULT_SETTINGS = {
 export const getSettings = async (req, res, next) => {
   try {
     const rows = await AppSetting.find({
-      key: { $in: ["attendanceRules", "salaryComponents"] },
+      key: { $in: ["attendanceRules", "payrollSettings", "salaryComponents"] },
     });
     const map = rows.reduce((acc, row) => {
       acc[row.key] = row.value;
@@ -32,6 +36,7 @@ export const getSettings = async (req, res, next) => {
     }, {});
     return res.json({
       attendanceRules: map.attendanceRules || DEFAULT_SETTINGS.attendanceRules,
+      payrollSettings: map.payrollSettings || DEFAULT_SETTINGS.payrollSettings,
       salaryComponents:
         map.salaryComponents || DEFAULT_SETTINGS.salaryComponents,
     });
@@ -51,6 +56,14 @@ export const upsertSettings = async (req, res, next) => {
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
       result.attendanceRules = row.value;
+    }
+    if (updates.payrollSettings) {
+      const row = await AppSetting.findOneAndUpdate(
+        { key: "payrollSettings" },
+        { value: updates.payrollSettings },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      result.payrollSettings = row.value;
     }
     if (updates.salaryComponents) {
       const row = await AppSetting.findOneAndUpdate(

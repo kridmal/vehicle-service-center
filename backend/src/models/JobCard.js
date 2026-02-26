@@ -16,6 +16,8 @@ const partUsageSchema = new mongoose.Schema(
 
 const jobTaskSchema = new mongoose.Schema(
   {
+    taskInstanceId: { type: String, trim: true, default: null },
+    serviceTypeId: { type: String, trim: true, default: null },
     taskId: { type: String, trim: true, default: null },
     taskName: { type: String, trim: true },
     title: { type: String, required: true, trim: true },
@@ -26,6 +28,11 @@ const jobTaskSchema = new mongoose.Schema(
     laborCharge: { type: Number, min: 0, default: 0 },
     billable: { type: Boolean, default: true },
     isBillable: { type: Boolean, default: true },
+    assignedStaffId: { type: mongoose.Schema.Types.ObjectId, ref: "Worker", default: null },
+    assignedStaffSnapshot: {
+      employeeNo: { type: String, trim: true, default: "" },
+      name: { type: String, trim: true, default: "" },
+    },
   },
   { _id: false }
 );
@@ -101,6 +108,7 @@ const jobCardSchema = new mongoose.Schema(
     },
     appliedRewards: { type: [appliedRewardSchema], default: [] },
     workNotes: { type: String, trim: true },
+    completedAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

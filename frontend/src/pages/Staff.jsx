@@ -4,6 +4,7 @@ import api from "../services/api.js";
 import "./Workers.css";
 
 const EMPTY_FORM = {
+  employeeId: "",
   fullName: "",
   NIC: "",
   address: "",
@@ -21,6 +22,7 @@ const EMPTY_FORM = {
   salaryType: "FIXED",
   basicSalary: "",
   perDayRate: "",
+  otRatePerHourOverride: "",
   commissionPercentage: "",
   notes: "",
   documents: [],
@@ -152,8 +154,13 @@ function Staff() {
     try {
       const payload = {
         ...form,
+        employeeId: String(form.employeeId || "").trim() || undefined,
         basicSalary: Number(form.basicSalary || 0),
         perDayRate: Number(form.perDayRate || 0),
+        otRatePerHourOverride:
+          form.otRatePerHourOverride === "" || form.otRatePerHourOverride === null
+            ? null
+            : Number(form.otRatePerHourOverride || 0),
         commissionPercentage: Number(form.commissionPercentage || 0),
       };
       if (editingId) {
@@ -175,6 +182,7 @@ function Staff() {
   const editEmployee = (row) => {
     setEditingId(String(row._id || row.id));
     setForm({
+      employeeId: row.employeeId || row.employeeNo || "",
       fullName: row.fullName || "",
       NIC: row.NIC || row.idNumber || "",
       address: row.address || "",
@@ -192,6 +200,7 @@ function Staff() {
       salaryType: row.salaryType || "FIXED",
       basicSalary: row.basicSalary ?? "",
       perDayRate: row.perDayRate ?? "",
+      otRatePerHourOverride: row.otRatePerHourOverride ?? "",
       commissionPercentage: row.commissionPercentage ?? "",
       notes: row.notes || "",
       documents: Array.isArray(row.documents) ? row.documents : [],
@@ -240,6 +249,7 @@ function Staff() {
         </div>
         <form className="workers-form" onSubmit={submit}>
           <div className="workers-grid">
+            <div className="workers-field"><label>Employee No</label><input value={form.employeeId} onChange={(e) => setFormField("employeeId", e.target.value)} placeholder="e.g. 8071302" /></div>
             <div className="workers-field"><label>Full Name</label><input value={form.fullName} onChange={(e) => setFormField("fullName", e.target.value)} required /></div>
             <div className="workers-field"><label>NIC</label><input value={form.NIC} onChange={(e) => setFormField("NIC", e.target.value)} /></div>
             <div className="workers-field"><label>Address</label><input value={form.address} onChange={(e) => setFormField("address", e.target.value)} /></div>
@@ -309,6 +319,7 @@ function Staff() {
             </div>
             <div className="workers-field"><label>Basic Salary</label><input type="number" min="0" value={form.basicSalary} onChange={(e) => setFormField("basicSalary", e.target.value)} /></div>
             <div className="workers-field"><label>Daily Rate</label><input type="number" min="0" value={form.perDayRate} onChange={(e) => setFormField("perDayRate", e.target.value)} /></div>
+            <div className="workers-field"><label>OT Rate Override</label><input type="number" min="0" step="0.01" value={form.otRatePerHourOverride} onChange={(e) => setFormField("otRatePerHourOverride", e.target.value)} /></div>
             <div className="workers-field"><label>Commission %</label><input type="number" min="0" max="100" value={form.commissionPercentage} onChange={(e) => setFormField("commissionPercentage", e.target.value)} /></div>
             <div className="workers-field workers-field--notes">
               <label>Documents (URL list)</label>

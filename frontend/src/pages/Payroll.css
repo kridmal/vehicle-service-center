@@ -86,6 +86,18 @@
   color: #0f172a;
 }
 
+.payroll-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.payroll-toggle input {
+  accent-color: #1e3a8a;
+}
+
 .payroll-field input,
 .payroll-field select {
   border-radius: 10px;

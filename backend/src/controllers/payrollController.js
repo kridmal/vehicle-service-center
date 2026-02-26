@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import AppSetting from "../models/AppSetting.js";
 import Attendance from "../models/Attendance.js";
 import AttendanceMonthFinalization from "../models/AttendanceMonthFinalization.js";
 import LeaveType from "../models/LeaveType.js";
@@ -7,7 +8,9 @@ import PayrollLine from "../models/PayrollLine.js";
 import PayrollRun from "../models/PayrollRun.js";
 import SalaryConfig from "../models/SalaryConfig.js";
 import Staff from "../models/Staff.js";
+import StaffAdvance from "../models/StaffAdvance.js";
 import WorkCalendarDay from "../models/WorkCalendarDay.js";
+import WorkLog from "../models/WorkLog.js";
 import { logAudit } from "../utils/audit.js";
 import { computePayrollLineTotals, resolveSalaryType, round2 } from "../utils/payrollEngine.js";
 
@@ -50,6 +53,43 @@ const isPastMonth = ({ year, month, now = new Date() }) => {
   const value = Number(year) * 100 + Number(month);
   const nowValue = now.getFullYear() * 100 + (now.getMonth() + 1);
   return value < nowValue;
+};
+
+const DEFAULT_PAYROLL_SETTINGS = {
+  standardDailyHours: 8,
+  otRatePerHour: 0,
+};
+
+const monthStartDate = ({ year, month }) =>
+  new Date(year, month - 1, 1, 0, 0, 0, 0);
+
+const monthEndDate = ({ year, month }) =>
+  new Date(year, month, 0, 23, 59, 59, 999);
+
+const monthDateRangeStrings = ({ monthKey }) => ({
+  from: `${monthKey}-01`,
+  to: `${monthKey}-31`,
+});
+
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const normalizePayrollSettings = (value) => {
+  const settings = value && typeof value === "object" ? value : {};
+  const standardDailyHours = Math.max(
+    0,
+    toNumber(settings.standardDailyHours || DEFAULT_PAYROLL_SETTINGS.standardDailyHours)
+  );
+  const otRatePerHour = Math.max(
+    0,
+    toNumber(settings.otRatePerHour || DEFAULT_PAYROLL_SETTINGS.otRatePerHour)
+  );
+  return {
+    standardDailyHours,
+    otRatePerHour,
+  };
 };
 
 const buildCalendarSummary = (rows = []) => {
@@ -120,6 +160,126 @@ const classifyAttendanceForStaff = ({ attendanceByDate, workingDates, leavePaidM
   return summary;
 };
 
+const buildWorkLogHoursMap = async ({ staffIds = [], monthInfo }) => {
+  if (!Array.isArray(staffIds) || staffIds.length === 0) {
+    return new Map();
+  }
+  const range = monthDateRangeStrings(monthInfo);
+  const rows = await WorkLog.aggregate([
+    {
+      $match: {
+        staffId: { $in: staffIds },
+        date: { $gte: range.from, $lte: range.to },
+      },
+    },
+    {
+      $group: {
+        _id: "$staffId",
+        monthlyLaborHours: { $sum: "$laborHours" },
+      },
+    },
+  ]);
+  return new Map(rows.map((row) => [String(row._id), round2(row.monthlyLaborHours || 0)]));
+};
+
+const rollbackAdvanceDeductionsFromRun = async (runId) => {
+  if (!runId) return;
+  const lines = await PayrollLine.find({
+    payrollRunId: runId,
+    "advanceDeduction.advancesApplied.0": { $exists: true },
+  }).select("advanceDeduction");
+  if (!lines.length) return;
+
+  const adjustmentByAdvanceId = new Map();
+  lines.forEach((line) => {
+    const applied = Array.isArray(line.advanceDeduction?.advancesApplied)
+      ? line.advanceDeduction.advancesApplied
+      : [];
+    applied.forEach((entry) => {
+      const id = String(entry.advanceId || "");
+      if (!id) return;
+      const value = round2(toNumber(entry.deductedAmount));
+      adjustmentByAdvanceId.set(id, round2((adjustmentByAdvanceId.get(id) || 0) + value));
+    });
+  });
+
+  const advanceIds = Array.from(adjustmentByAdvanceId.keys()).filter((id) => isValidId(id));
+  if (!advanceIds.length) return;
+
+  const advances = await StaffAdvance.find({ _id: { $in: advanceIds } });
+  const ops = advances
+    .map((advance) => {
+      const key = String(advance._id);
+      const adjustment = adjustmentByAdvanceId.get(key);
+      if (!adjustment || adjustment <= 0) return null;
+      const nextOutstanding = round2(toNumber(advance.outstandingAmount) + adjustment);
+      return {
+        updateOne: {
+          filter: { _id: advance._id },
+          update: {
+            $set: {
+              outstandingAmount: nextOutstanding,
+              status: nextOutstanding > 0 ? "PAID_OUT" : advance.status,
+              settledAt: nextOutstanding > 0 ? null : advance.settledAt,
+            },
+          },
+        },
+      };
+    })
+    .filter(Boolean);
+
+  if (ops.length) {
+    await StaffAdvance.bulkWrite(ops, { ordered: false });
+  }
+};
+
+const applyAdvanceDeductions = ({
+  staffId,
+  grossPay,
+  baseTotalDeductions,
+  advancesByStaff,
+  changedAdvanceIds,
+  now,
+}) => {
+  const applied = [];
+  const staffAdvances = advancesByStaff.get(staffId) || [];
+  let remainingNet = round2(Math.max(0, toNumber(grossPay) - toNumber(baseTotalDeductions)));
+  let advanceDeductionTotal = 0;
+
+  for (const advance of staffAdvances) {
+    if (remainingNet <= 0) break;
+    if (String(advance.status || "") !== "PAID_OUT") continue;
+    const outstanding = round2(toNumber(advance.outstandingAmount));
+    if (outstanding <= 0) continue;
+
+    const deductedAmount = round2(Math.min(remainingNet, outstanding));
+    if (deductedAmount <= 0) continue;
+
+    remainingNet = round2(Math.max(0, remainingNet - deductedAmount));
+    advanceDeductionTotal = round2(advanceDeductionTotal + deductedAmount);
+    advance.outstandingAmount = round2(Math.max(0, outstanding - deductedAmount));
+    if (advance.outstandingAmount <= 0) {
+      advance.outstandingAmount = 0;
+      advance.status = "SETTLED";
+      advance.settledAt = now;
+    }
+    changedAdvanceIds.add(String(advance._id));
+    applied.push({
+      advanceId: advance._id,
+      deductedAmount,
+    });
+  }
+
+  const totalDeductions = round2(toNumber(baseTotalDeductions) + advanceDeductionTotal);
+  const netPay = round2(Math.max(0, toNumber(grossPay) - totalDeductions));
+  return {
+    advancesApplied: applied,
+    advanceDeductionTotal: round2(advanceDeductionTotal),
+    totalDeductions,
+    netPay,
+  };
+};
+
 const toLegacyRecord = ({ run, line }) => {
   const leaveDays =
     Number(line.attendanceSummary?.leavePaidDays || 0) +
@@ -130,6 +290,27 @@ const toLegacyRecord = ({ run, line }) => {
       : run.status === "FINALIZED"
       ? "approved"
       : "draft";
+  const allowances = [
+    { name: "Allowances", amount: Number(line.payComponents?.allowancesTotal || 0) },
+  ];
+  if (Number(line.payComponents?.otAmount || 0) > 0) {
+    allowances.push({
+      name: "OT/Incentive",
+      amount: Number(line.payComponents?.otAmount || 0),
+    });
+  }
+  const otherDeductions = [
+    {
+      name: "Fixed Deductions",
+      amount: Number(line.deductions?.fixedDeductionsTotal || 0),
+    },
+  ];
+  if (Number(line.deductions?.advanceDeductionTotal || 0) > 0) {
+    otherDeductions.push({
+      name: "Advance Recovery",
+      amount: Number(line.deductions?.advanceDeductionTotal || 0),
+    });
+  }
   return {
     _id: String(line._id),
     employeeId: line.staffId,
@@ -150,20 +331,13 @@ const toLegacyRecord = ({ run, line }) => {
     },
     earnings: {
       basicSalary: Number(line.payComponents?.basicSalary || 0),
-      allowances: [
-        { name: "Allowances", amount: Number(line.payComponents?.allowancesTotal || 0) },
-      ],
+      allowances,
       grossEarnings: Number(line.payComponents?.grossPay || 0),
     },
     deductions: {
       lopDeduction: Number(line.deductions?.lopAmount || 0),
       halfDayDeduction: 0,
-      otherDeductions: [
-        {
-          name: "Fixed Deductions",
-          amount: Number(line.deductions?.fixedDeductionsTotal || 0),
-        },
-      ],
+      otherDeductions,
       totalDeductions: Number(line.deductions?.totalDeductions || 0),
     },
     oneTimeAllowances: [],
@@ -296,6 +470,7 @@ export const generatePayroll = async (req, res, next) => {
           "Attendance is not finalized for this month. Please finalize attendance first.",
       });
     }
+    const otEnabled = Boolean(req.body.otEnabled);
 
     const daysInMonth = totalDaysInMonth(monthInfo.year, monthInfo.month);
     const [calendarRows, staffRows] = await Promise.all([
@@ -332,18 +507,22 @@ export const generatePayroll = async (req, res, next) => {
     }
 
     const staffIds = staffRows.map((row) => row._id);
-    const [attendanceRows, salaryConfigs] = await Promise.all([
+    const monthRange = monthDateRangeStrings(monthInfo);
+    const [attendanceRows, salaryConfigs, payrollSettingsRow, workLogHoursMap] = await Promise.all([
       Attendance.find({
         staffId: { $in: staffIds },
         date: {
-          $gte: `${monthInfo.monthKey}-01`,
-          $lte: `${monthInfo.monthKey}-31`,
+          $gte: monthRange.from,
+          $lte: monthRange.to,
         },
       }).select(
         "staffId date status leaveTypeId leaveTypeName isPaidLeave employeeId employeeName department role"
       ),
       SalaryConfig.find({ employeeId: { $in: staffIds } }),
+      AppSetting.findOne({ key: "payrollSettings" }),
+      buildWorkLogHoursMap({ staffIds, monthInfo }),
     ]);
+    const payrollSettings = normalizePayrollSettings(payrollSettingsRow?.value);
 
     const leaveTypeIds = Array.from(
       new Set(
@@ -400,7 +579,7 @@ export const generatePayroll = async (req, res, next) => {
           ? basicSalaryMonthly / calendarSummary.workingDaysInMonth
           : 0;
       const dailyRate = Number(config?.dailyRate ?? staff.perDayRate ?? fallbackDailyRate);
-      const totals = computePayrollLineTotals({
+      const baseTotals = computePayrollLineTotals({
         salaryType,
         workingDaysInMonth: calendarSummary.workingDaysInMonth,
         presentDays: attendanceSummary.presentDays,
@@ -413,12 +592,46 @@ export const generatePayroll = async (req, res, next) => {
         allowances,
         fixedDeductions,
       });
+      const monthlyLaborHours = round2(workLogHoursMap.get(staffId) || 0);
+      const targetHours = round2(
+        calendarSummary.workingDaysInMonth * payrollSettings.standardDailyHours
+      );
+      const overtimeHours = round2(Math.max(0, monthlyLaborHours - targetHours));
+      const otRate = otEnabled
+        ? round2(
+            Math.max(
+              0,
+              toNumber(
+                staff.otRatePerHourOverride ?? payrollSettings.otRatePerHour
+              )
+            )
+          )
+        : 0;
+      const otAmount = otEnabled ? round2(overtimeHours * otRate) : 0;
+      const grossPay = round2(baseTotals.grossPay + otAmount);
+      const baseTotalDeductions = round2(baseTotals.totalDeductions);
 
       return {
         staff,
         salaryType,
         attendanceSummary,
-        totals,
+        totals: {
+          basicSalary: baseTotals.basicSalary,
+          allowancesTotal: baseTotals.allowancesTotal,
+          otAmount,
+          grossPay,
+          lopDays: baseTotals.lopDays,
+          lopAmount: baseTotals.lopAmount,
+          fixedDeductionsTotal: baseTotals.fixedDeductionsTotal,
+          baseTotalDeductions,
+        },
+        performance: {
+          targetHours,
+          monthlyLaborHours,
+          overtimeHours,
+          otRate,
+          otAmount,
+        },
       };
     });
 
@@ -441,53 +654,121 @@ export const generatePayroll = async (req, res, next) => {
         status: "DRAFT",
         generatedAt: new Date(),
         generatedBy: req.user?.name || req.user?.email || "",
+        otEnabled,
+        otRatePerHourUsed: payrollSettings.otRatePerHour,
+        standardDailyHoursUsed: payrollSettings.standardDailyHours,
         notes: String(req.body.notes || "").trim(),
       });
     } else {
       run.generatedAt = new Date();
       run.generatedBy = req.user?.name || req.user?.email || "";
       run.status = "DRAFT";
+      run.otEnabled = otEnabled;
+      run.otRatePerHourUsed = payrollSettings.otRatePerHour;
+      run.standardDailyHoursUsed = payrollSettings.standardDailyHours;
       run.notes = String(req.body.notes || run.notes || "").trim();
       await run.save();
+      await rollbackAdvanceDeductionsFromRun(run._id);
       await PayrollLine.deleteMany({ payrollRunId: run._id });
     }
 
+    const monthEnd = monthEndDate(monthInfo);
+    const advanceRows = await StaffAdvance.find({
+      staffId: { $in: staffIds },
+      status: "PAID_OUT",
+      outstandingAmount: { $gt: 0 },
+      requestDate: { $lte: monthEnd },
+    }).sort({ requestDate: 1, createdAt: 1 });
+    const advancesByStaff = new Map();
+    advanceRows.forEach((advance) => {
+      const key = String(advance.staffId);
+      if (!advancesByStaff.has(key)) advancesByStaff.set(key, []);
+      advancesByStaff.get(key).push(advance);
+    });
+    const changedAdvanceIds = new Set();
+    const now = new Date();
+
     const linePayload = lineDrafts.map((entry) => ({
-      payrollRunId: run._id,
-      staffId: entry.staff._id,
-      staffSnapshot: {
-        name: entry.staff.fullName,
-        role: entry.staff.roleName || "",
-        employeeCode: entry.staff.employeeId || String(entry.staff._id),
-      },
-      salaryType: entry.salaryType,
-      calendarSummary: {
-        workingDaysInMonth: calendarSummary.workingDaysInMonth,
-        weekendOffDays: calendarSummary.weekendOffDays,
-        holidaysCount: calendarSummary.holidaysCount,
-      },
-      attendanceSummary: {
-        presentDays: entry.attendanceSummary.presentDays,
-        absentDays: entry.attendanceSummary.absentDays,
-        leavePaidDays: entry.attendanceSummary.leavePaidDays,
-        leaveUnpaidDays: entry.attendanceSummary.leaveUnpaidDays,
-        halfDays: entry.attendanceSummary.halfDays,
-        unmarkedDays: entry.attendanceSummary.unmarkedDays,
-      },
-      payComponents: {
-        basicSalary: entry.totals.basicSalary,
-        allowancesTotal: entry.totals.allowancesTotal,
-        grossPay: entry.totals.grossPay,
-      },
-      deductions: {
-        lopDays: entry.totals.lopDays,
-        lopAmount: entry.totals.lopAmount,
-        fixedDeductionsTotal: entry.totals.fixedDeductionsTotal,
-        totalDeductions: entry.totals.totalDeductions,
-      },
-      netPay: entry.totals.netPay,
-      paymentStatus: "UNPAID",
+      ...(() => {
+        const advance = applyAdvanceDeductions({
+          staffId: String(entry.staff._id),
+          grossPay: entry.totals.grossPay,
+          baseTotalDeductions: entry.totals.baseTotalDeductions,
+          advancesByStaff,
+          changedAdvanceIds,
+          now,
+        });
+        return {
+          payrollRunId: run._id,
+          staffId: entry.staff._id,
+          staffSnapshot: {
+            name: entry.staff.fullName,
+            role: entry.staff.roleName || "",
+            employeeCode: entry.staff.employeeId || String(entry.staff._id),
+          },
+          salaryType: entry.salaryType,
+          calendarSummary: {
+            workingDaysInMonth: calendarSummary.workingDaysInMonth,
+            weekendOffDays: calendarSummary.weekendOffDays,
+            holidaysCount: calendarSummary.holidaysCount,
+          },
+          attendanceSummary: {
+            presentDays: entry.attendanceSummary.presentDays,
+            absentDays: entry.attendanceSummary.absentDays,
+            leavePaidDays: entry.attendanceSummary.leavePaidDays,
+            leaveUnpaidDays: entry.attendanceSummary.leaveUnpaidDays,
+            halfDays: entry.attendanceSummary.halfDays,
+            unmarkedDays: entry.attendanceSummary.unmarkedDays,
+          },
+          payComponents: {
+            basicSalary: entry.totals.basicSalary,
+            allowancesTotal: entry.totals.allowancesTotal,
+            otAmount: entry.totals.otAmount,
+            grossPay: entry.totals.grossPay,
+          },
+          performanceSummary: {
+            targetHours: entry.performance.targetHours,
+            monthlyLaborHours: entry.performance.monthlyLaborHours,
+            overtimeHours: entry.performance.overtimeHours,
+            otRate: entry.performance.otRate,
+            otAmount: entry.performance.otAmount,
+          },
+          advanceDeduction: {
+            advancesApplied: advance.advancesApplied,
+            advanceDeductionTotal: advance.advanceDeductionTotal,
+          },
+          deductions: {
+            lopDays: entry.totals.lopDays,
+            lopAmount: entry.totals.lopAmount,
+            fixedDeductionsTotal: entry.totals.fixedDeductionsTotal,
+            advanceDeductionTotal: advance.advanceDeductionTotal,
+            totalDeductions: advance.totalDeductions,
+          },
+          netPay: advance.netPay,
+          paymentStatus: "UNPAID",
+        };
+      })(),
     }));
+
+    if (changedAdvanceIds.size > 0) {
+      const ops = advanceRows
+        .filter((advance) => changedAdvanceIds.has(String(advance._id)))
+        .map((advance) => ({
+          updateOne: {
+            filter: { _id: advance._id },
+            update: {
+              $set: {
+                outstandingAmount: round2(toNumber(advance.outstandingAmount)),
+                status: advance.status,
+                settledAt: advance.settledAt || null,
+              },
+            },
+          },
+        }));
+      if (ops.length > 0) {
+        await StaffAdvance.bulkWrite(ops, { ordered: false });
+      }
+    }
 
     const lines = await PayrollLine.insertMany(linePayload);
     const totals = lines.reduce(

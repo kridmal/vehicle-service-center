@@ -44,6 +44,7 @@ const staffSchema = new mongoose.Schema(
     basicSalary: { type: Number, min: 0, default: 0 },
     commissionPercentage: { type: Number, min: 0, default: 0 },
     perDayRate: { type: Number, min: 0, default: 0 },
+    otRatePerHourOverride: { type: Number, min: 0, default: null },
     active: { type: Boolean, default: true },
     notes: { type: String, trim: true },
     idNumber: { type: String, trim: true },

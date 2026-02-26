@@ -36,12 +36,40 @@ const payrollLineSchema = new mongoose.Schema(
     payComponents: {
       basicSalary: { type: Number, min: 0, default: 0 },
       allowancesTotal: { type: Number, min: 0, default: 0 },
+      otAmount: { type: Number, min: 0, default: 0 },
       grossPay: { type: Number, min: 0, default: 0 },
+    },
+    performanceSummary: {
+      targetHours: { type: Number, min: 0, default: 0 },
+      monthlyLaborHours: { type: Number, min: 0, default: 0 },
+      overtimeHours: { type: Number, min: 0, default: 0 },
+      otRate: { type: Number, min: 0, default: 0 },
+      otAmount: { type: Number, min: 0, default: 0 },
+    },
+    advanceDeduction: {
+      advancesApplied: {
+        type: [
+          new mongoose.Schema(
+            {
+              advanceId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "StaffAdvance",
+                required: true,
+              },
+              deductedAmount: { type: Number, min: 0, default: 0 },
+            },
+            { _id: false }
+          ),
+        ],
+        default: [],
+      },
+      advanceDeductionTotal: { type: Number, min: 0, default: 0 },
     },
     deductions: {
       lopDays: { type: Number, min: 0, default: 0 },
       lopAmount: { type: Number, min: 0, default: 0 },
       fixedDeductionsTotal: { type: Number, min: 0, default: 0 },
+      advanceDeductionTotal: { type: Number, min: 0, default: 0 },
       totalDeductions: { type: Number, min: 0, default: 0 },
     },
     netPay: { type: Number, min: 0, default: 0 },

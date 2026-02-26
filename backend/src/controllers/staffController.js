@@ -78,6 +78,12 @@ const parseNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const parseNullableNumber = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 const resolveRoleDefaults = (staff) => {
   const roleType = normalizeRoleType(staff.roleType, staff.role);
   const resolvedRoleType = roleType || "TECHNICAL";
@@ -92,6 +98,8 @@ const serializeStaff = (staff) => {
   const payload = staff.toObject({ getters: true, virtuals: false });
   payload.roleType = roleType;
   payload.roleName = roleName;
+  payload.employeeNo = payload.employeeId || "";
+  payload.name = payload.fullName || "";
   if (payload.salaryType === "PER_JOB") {
     payload.salaryType = "PER_DAY";
   }
@@ -209,6 +217,37 @@ export const listStaff = async (req, res, next) => {
   }
 };
 
+export const searchStaff = async (req, res, next) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q) {
+      return res.json([]);
+    }
+
+    const regex = new RegExp(q, "i");
+    const rows = await Staff.find({
+      active: { $ne: false },
+      status: { $ne: "inactive" },
+      $or: [{ employeeId: regex }, { fullName: regex }],
+    })
+      .select("_id employeeId fullName roleName role status active")
+      .sort({ employeeId: 1, fullName: 1 })
+      .limit(20);
+
+    return res.json(
+      rows.map((row) => ({
+        _id: row._id,
+        employeeNo: row.employeeId || "",
+        name: row.fullName || "",
+        role: row.roleName || row.role || "",
+        status: row.status || (row.active === false ? "inactive" : "active"),
+      }))
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const createStaff = async (req, res, next) => {
   try {
     const {
@@ -220,6 +259,7 @@ export const createStaff = async (req, res, next) => {
       basicSalary,
       commissionPercentage,
       perDayRate,
+      otRatePerHourOverride,
       active,
       notes,
       idNumber,
@@ -259,6 +299,7 @@ export const createStaff = async (req, res, next) => {
     const normalizedBasicSalary = parseNumber(basicSalary ?? req.body.baseSalary);
     const normalizedCommission = parseNumber(commissionPercentage);
     const normalizedPerDay = parseNumber(perDayRate);
+    const normalizedOtRateOverride = parseNullableNumber(otRatePerHourOverride);
 
     if (
       normalizedBasicSalary !== undefined &&
@@ -276,6 +317,9 @@ export const createStaff = async (req, res, next) => {
       return res
         .status(400)
         .json({ message: "Commission must be between 0 and 100" });
+    }
+    if (normalizedOtRateOverride === undefined || normalizedOtRateOverride < 0) {
+      return res.status(400).json({ message: "Invalid OT rate override" });
     }
 
     if (roleId && !isValidId(roleId)) {
@@ -311,6 +355,7 @@ export const createStaff = async (req, res, next) => {
       basicSalary: normalizedBasicSalary,
       commissionPercentage: normalizedCommission,
       perDayRate: normalizedPerDay,
+      otRatePerHourOverride: normalizedOtRateOverride,
       active: active !== undefined ? Boolean(active) : true,
       notes,
       idNumber,
@@ -367,9 +412,52 @@ export const updateStaff = async (req, res, next) => {
       }
       updates.salaryType = normalizedSalaryType;
     }
+    const unsetFields = {};
+    const optionalRefFields = {
+      roleId: "role id",
+      departmentId: "department id",
+      shiftId: "shift id",
+    };
+    for (const [field, label] of Object.entries(optionalRefFields)) {
+      if (updates[field] === undefined) continue;
+      const normalized = String(updates[field] ?? "").trim();
+      if (!normalized) {
+        unsetFields[field] = 1;
+        delete updates[field];
+        continue;
+      }
+      if (!isValidId(normalized)) {
+        return res.status(400).json({ message: `Invalid ${label}` });
+      }
+      updates[field] = normalized;
+    }
+
     if (updates.roleId !== undefined) {
-      if (updates.roleId && !isValidId(updates.roleId)) {
-        return res.status(400).json({ message: "Invalid role id" });
+      const roleDoc = await Role.findById(updates.roleId);
+      if (!roleDoc) return res.status(404).json({ message: "Role not found" });
+    }
+
+    if (updates.employeeId !== undefined) {
+      const normalizedEmployeeId = String(updates.employeeId ?? "").trim();
+      if (!normalizedEmployeeId) {
+        unsetFields.employeeId = 1;
+        delete updates.employeeId;
+      } else {
+        updates.employeeId = normalizedEmployeeId;
+      }
+    }
+
+    if (updates.joinDate !== undefined) {
+      const normalizedJoinDate = String(updates.joinDate ?? "").trim();
+      if (!normalizedJoinDate) {
+        unsetFields.joinDate = 1;
+        delete updates.joinDate;
+      } else {
+        const parsedDate = new Date(normalizedJoinDate);
+        if (Number.isNaN(parsedDate.getTime())) {
+          return res.status(400).json({ message: "Invalid join date" });
+        }
+        updates.joinDate = parsedDate;
       }
     }
 
@@ -407,7 +495,20 @@ export const updateStaff = async (req, res, next) => {
       updates.commissionPercentage = normalized;
     }
 
-    const staff = await Staff.findByIdAndUpdate(id, updates, {
+    if (updates.otRatePerHourOverride !== undefined) {
+      const normalized = parseNullableNumber(updates.otRatePerHourOverride);
+      if (normalized === undefined || normalized < 0) {
+        return res.status(400).json({ message: "Invalid OT rate override" });
+      }
+      updates.otRatePerHourOverride = normalized;
+    }
+
+    const updateDoc =
+      Object.keys(unsetFields).length > 0
+        ? { $set: updates, $unset: unsetFields }
+        : updates;
+
+    const staff = await Staff.findByIdAndUpdate(id, updateDoc, {
       new: true,
       runValidators: true,
     });

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { randomUUID } from "node:crypto";
 import Counter from "../models/Counter.js";
 import Customer from "../models/Customer.js";
 import JobCard from "../models/JobCard.js";
@@ -7,6 +8,7 @@ import Invoice from "../models/Invoice.js";
 import ServiceType from "../models/ServiceType.js";
 import Staff from "../models/Staff.js";
 import Vehicle from "../models/Vehicle.js";
+import WorkLog from "../models/WorkLog.js";
 import { computeItemDiscount, roundMoney } from "../utils/itemDiscount.js";
 import {
   deriveLoyaltyPricing,
@@ -64,13 +66,41 @@ const resolveTaskBillable = (task) => {
   return true;
 };
 
-const normalizeServiceTasks = (tasks = []) =>
+const toSlug = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+
+const buildTaskInstanceId = ({ serviceType, task, taskIndex }) => {
+  const explicitId = String(task?.taskInstanceId || task?.id || "").trim();
+  if (explicitId) return explicitId;
+
+  const normalizedServiceType = toSlug(serviceType || "service");
+  const baseTaskId =
+    String(task?.taskId || task?._id || "").trim() ||
+    toSlug(task?.taskName || task?.title || "task");
+  return `${normalizedServiceType}:${toSlug(baseTaskId || "task")}:${taskIndex}:${randomUUID()}`;
+};
+
+const normalizeAssignedStaffSnapshot = (task) => ({
+  employeeNo: String(task?.assignedStaffSnapshot?.employeeNo || "").trim(),
+  name: String(task?.assignedStaffSnapshot?.name || "").trim(),
+});
+
+const normalizeServiceTasks = (tasks = [], serviceType = "") =>
   tasks
-    .map((task) => {
+    .map((task, taskIndex) => {
       if (typeof task === "string") {
         const title = task.trim();
         if (!title) return null;
         return {
+          taskInstanceId: buildTaskInstanceId({
+            serviceType,
+            task: { title },
+            taskIndex,
+          }),
+          serviceTypeId: serviceType || null,
           taskId: null,
           taskName: title,
           title,
@@ -81,6 +111,8 @@ const normalizeServiceTasks = (tasks = []) =>
           laborCharge: 0,
           billable: true,
           isBillable: true,
+          assignedStaffId: null,
+          assignedStaffSnapshot: { employeeNo: "", name: "" },
         };
       }
       if (!task || typeof task !== "object") return null;
@@ -91,8 +123,17 @@ const normalizeServiceTasks = (tasks = []) =>
       const taskId = task.taskId || task._id || task.id || null;
       const selected = resolveTaskSelected(task);
       const billable = resolveTaskBillable(task);
+      const assignedStaffId = isValidId(task.assignedStaffId)
+        ? new mongoose.Types.ObjectId(String(task.assignedStaffId))
+        : null;
 
       return {
+        taskInstanceId: buildTaskInstanceId({
+          serviceType,
+          task: { ...task, taskId },
+          taskIndex,
+        }),
+        serviceTypeId: serviceType || String(task.serviceTypeId || "").trim() || null,
         taskId: taskId ? String(taskId) : null,
         taskName: title,
         title,
@@ -107,6 +148,8 @@ const normalizeServiceTasks = (tasks = []) =>
         ),
         billable,
         isBillable: billable,
+        assignedStaffId,
+        assignedStaffSnapshot: normalizeAssignedStaffSnapshot(task),
       };
     })
     .filter((task) => task && task.title);
@@ -116,7 +159,7 @@ const normalizeServices = (services = []) =>
     .map((service) => {
       if (!service) return null;
       if (typeof service === "string") {
-        return { serviceType: service.trim(), tasks: [] };
+        return { serviceType: service.trim(), serviceName: "", tasks: [] };
       }
       const serviceType = String(
         service.serviceType || service.id || service._id || ""
@@ -124,7 +167,8 @@ const normalizeServices = (services = []) =>
       if (!serviceType) return null;
       return {
         serviceType,
-        tasks: normalizeServiceTasks(service.tasks),
+        serviceName: String(service.serviceName || service.name || "").trim(),
+        tasks: normalizeServiceTasks(service.tasks, serviceType),
       };
     })
     .filter(Boolean);
@@ -149,8 +193,9 @@ const appendServiceTypeTasks = ({
   existingServices = [],
   incomingServiceTypeDocs = [],
 }) => {
+  const normalizedExistingServices = normalizeServices(existingServices);
   const existingTaskIdentities = new Set(
-    (Array.isArray(existingServices) ? existingServices : []).flatMap((service) =>
+    normalizedExistingServices.flatMap((service) =>
       (service?.tasks || [])
         .map((task) => buildTaskIdentity(task))
         .filter(Boolean)
@@ -159,26 +204,174 @@ const appendServiceTypeTasks = ({
 
   const appendedServices = [];
   for (const serviceTypeDoc of incomingServiceTypeDocs) {
-    const normalizedTasks = normalizeServiceTasks(serviceTypeDoc?.tasks || []).filter(
-      (task) => {
-        const identity = buildTaskIdentity(task);
-        if (!identity) return true;
-        if (existingTaskIdentities.has(identity)) return false;
-        existingTaskIdentities.add(identity);
-        return true;
-      }
-    );
+    const serviceTypeId = String(serviceTypeDoc?._id || "");
+    const normalizedTasks = normalizeServiceTasks(
+      serviceTypeDoc?.tasks || [],
+      serviceTypeId
+    ).filter((task) => {
+      const identity = buildTaskIdentity(task);
+      if (!identity) return true;
+      if (existingTaskIdentities.has(identity)) return false;
+      existingTaskIdentities.add(identity);
+      return true;
+    });
 
     appendedServices.push({
       serviceType: String(serviceTypeDoc._id),
+      serviceName: String(serviceTypeDoc?.name || "").trim(),
       tasks: normalizedTasks,
     });
   }
 
   return [
-    ...(Array.isArray(existingServices) ? existingServices : []),
+    ...normalizedExistingServices,
     ...appendedServices,
   ];
+};
+
+const toLocalDateString = (value) => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const collectSelectedTasksMissingAssignment = (services = []) => {
+  const missing = [];
+  for (const service of Array.isArray(services) ? services : []) {
+    const tasks = Array.isArray(service?.tasks) ? service.tasks : [];
+    for (const task of tasks) {
+      const selected = resolveTaskSelected(task);
+      if (!selected) continue;
+      if (task?.assignedStaffId && isValidId(String(task.assignedStaffId))) continue;
+      missing.push({
+        serviceType: String(service?.serviceType || "").trim(),
+        taskName: String(task?.taskName || task?.title || "").trim() || "Task",
+      });
+    }
+  }
+  return missing;
+};
+
+const deriveAssignedWorkersFromServices = async (services = []) => {
+  const entries = [];
+  const taskAssignments = [];
+  for (const service of Array.isArray(services) ? services : []) {
+    for (const task of Array.isArray(service?.tasks) ? service.tasks : []) {
+      if (!task?.assignedStaffId || !isValidId(String(task.assignedStaffId))) {
+        continue;
+      }
+      taskAssignments.push({
+        staffId: String(task.assignedStaffId),
+        snapshot: task.assignedStaffSnapshot || {},
+      });
+    }
+  }
+  if (!taskAssignments.length) return entries;
+
+  const ids = [...new Set(taskAssignments.map((entry) => entry.staffId))];
+  const staffRows = await Staff.find({ _id: { $in: ids } }).select(
+    "_id employeeId fullName roleName role"
+  );
+  const staffMap = new Map(staffRows.map((row) => [String(row._id), row]));
+
+  for (const staffId of ids) {
+    const staff = staffMap.get(staffId);
+    const taskSnapshot = taskAssignments.find((entry) => entry.staffId === staffId)?.snapshot;
+    entries.push({
+      staffId: staff?._id || new mongoose.Types.ObjectId(staffId),
+      workerId: staff?._id || new mongoose.Types.ObjectId(staffId),
+      name: staff?.fullName || String(taskSnapshot?.name || "").trim(),
+      roleName: staff?.roleName || staff?.role || "",
+      role: staff?.roleName || staff?.role || "",
+    });
+  }
+
+  return entries.filter((entry) => entry.name);
+};
+
+const createWorkLogsForCompletedJobCard = async ({ jobCard, services, completedAt }) => {
+  const completionDate = toLocalDateString(completedAt);
+  if (!completionDate) {
+    throw new Error("Invalid completion date");
+  }
+
+  const existingLogs = await WorkLog.countDocuments({ jobCardId: jobCard._id });
+  if (existingLogs > 0) {
+    return { error: "Work logs already exist for this job card" };
+  }
+
+  const selectedTasks = [];
+  for (const service of Array.isArray(services) ? services : []) {
+    for (const task of Array.isArray(service?.tasks) ? service.tasks : []) {
+      if (!resolveTaskSelected(task)) continue;
+      selectedTasks.push({
+        serviceTypeId: String(service?.serviceType || task?.serviceTypeId || "").trim(),
+        serviceName: String(service?.serviceName || "").trim(),
+        task,
+      });
+    }
+  }
+  if (!selectedTasks.length) {
+    return { createdCount: 0 };
+  }
+
+  const staffIds = [
+    ...new Set(
+      selectedTasks
+        .map((entry) => entry.task?.assignedStaffId)
+        .filter(Boolean)
+        .map((value) => String(value))
+    ),
+  ];
+  const staffRows = await Staff.find({ _id: { $in: staffIds } }).select(
+    "_id employeeId fullName roleName role status active"
+  );
+  const staffMap = new Map(staffRows.map((row) => [String(row._id), row]));
+
+  const missingStaff = selectedTasks.find(
+    (entry) => !entry.task?.assignedStaffId || !staffMap.has(String(entry.task.assignedStaffId))
+  );
+  if (missingStaff) {
+    return { error: "Selected tasks must have assigned staff before completion" };
+  }
+
+  const serviceTypeIds = [
+    ...new Set(selectedTasks.map((entry) => entry.serviceTypeId).filter(Boolean)),
+  ].filter((id) => isValidId(id));
+  const serviceRows = serviceTypeIds.length
+    ? await ServiceType.find({ _id: { $in: serviceTypeIds } }).select("_id name")
+    : [];
+  const serviceMap = new Map(serviceRows.map((row) => [String(row._id), row.name || ""]));
+
+  const payload = selectedTasks.map(({ serviceTypeId, serviceName, task }) => {
+    const staff = staffMap.get(String(task.assignedStaffId));
+    return {
+      date: completionDate,
+      staffId: staff._id,
+      employeeNo: staff.employeeId || String(task?.assignedStaffSnapshot?.employeeNo || "").trim(),
+      staffName: staff.fullName || String(task?.assignedStaffSnapshot?.name || "").trim(),
+      jobCardId: jobCard._id,
+      jobCardNo: jobCard.jobCardNo || "",
+      serviceTypeId,
+      serviceTypeName: serviceName || serviceMap.get(serviceTypeId) || "",
+      taskInstanceId:
+        String(task.taskInstanceId || "").trim() ||
+        buildTaskInstanceId({ serviceType: serviceTypeId, task, taskIndex: 0 }),
+      taskName: String(task.taskName || task.title || "").trim(),
+      laborHours: roundCurrency(toNonNegativeNumber(task.laborHours)),
+      billable: resolveTaskBillable(task),
+      selected: true,
+      status: "CONFIRMED",
+    };
+  });
+
+  if (payload.length > 0) {
+    await WorkLog.insertMany(payload, { ordered: true });
+  }
+  return { createdCount: payload.length };
 };
 
 const toPrintCustomer = (customer) => {
@@ -613,8 +806,11 @@ export const createJobCard = async (req, res, next) => {
       pricing.loyaltyLaborDiscount
     );
 
-    let assignedWorkerSnapshots = [];
-    if (assignedWorkers !== undefined) {
+    const derivedAssignedFromTasks = await deriveAssignedWorkersFromServices(
+      normalizedServices
+    );
+    let assignedWorkerSnapshots = derivedAssignedFromTasks;
+    if (!assignedWorkerSnapshots.length && assignedWorkers !== undefined) {
       const result = await normalizeAssignedWorkers(assignedWorkers);
       if (result.error) {
         return res.status(400).json({ message: result.error });
@@ -630,6 +826,31 @@ export const createJobCard = async (req, res, next) => {
             .filter(Boolean)
             .join(", ")
         : "";
+
+    const resolvedStatus = status || "OPEN";
+    if (resolvedStatus === "COMPLETED") {
+      const hasIncompleteRequired = normalizedServices.some((service) =>
+        (service.tasks || []).some(
+          (task) => task.isRequired && !resolveTaskSelected(task)
+        )
+      );
+      if (hasIncompleteRequired) {
+        return res.status(400).json({
+          message: "Complete all required tasks before marking as completed",
+        });
+      }
+      const missingAssignments = collectSelectedTasksMissingAssignment(normalizedServices);
+      if (missingAssignments.length > 0) {
+        const sample = missingAssignments
+          .slice(0, 5)
+          .map((entry) => entry.taskName)
+          .join(", ");
+        return res.status(400).json({
+          message: `Assign staff for all selected tasks before completion. Missing: ${sample}`,
+        });
+      }
+    }
+    const completedAt = resolvedStatus === "COMPLETED" ? new Date() : null;
 
     const jobCard = await JobCard.create({
       jobCardNo: resolvedJobCardNo,
@@ -651,11 +872,23 @@ export const createJobCard = async (req, res, next) => {
       grandTotal: pricing.grandTotal,
       loyaltyAppliedAt: persistedAppliedRewards.length ? new Date() : null,
       appliedRewards: persistedAppliedRewards,
-      status: status || "OPEN",
+      status: resolvedStatus,
       paymentStatus: paymentStatus || "UNPAID",
       workNotes: workNotes || "",
+      completedAt,
       createdAt: createdAt ? new Date(createdAt) : undefined,
     });
+
+    if (resolvedStatus === "COMPLETED") {
+      const logsResult = await createWorkLogsForCompletedJobCard({
+        jobCard,
+        services: normalizedServices,
+        completedAt: completedAt || jobCard.completedAt,
+      });
+      if (logsResult?.error) {
+        return res.status(400).json({ message: logsResult.error });
+      }
+    }
 
     return res.status(201).json(jobCard);
   } catch (error) {
@@ -754,6 +987,26 @@ export const updateJobCard = async (req, res, next) => {
           message: "Complete all required tasks before marking as completed",
         });
       }
+
+      const missingAssignments = collectSelectedTasksMissingAssignment(servicesToCheck);
+      if (missingAssignments.length > 0) {
+        const sample = missingAssignments
+          .slice(0, 5)
+          .map((entry) => entry.taskName)
+          .join(", ");
+        return res.status(400).json({
+          message: `Assign staff for all selected tasks before completion. Missing: ${sample}`,
+        });
+      }
+
+      if (currentStatus !== "COMPLETED") {
+        const existingLogs = await WorkLog.countDocuments({ jobCardId: jobCard._id });
+        if (existingLogs > 0) {
+          return res.status(400).json({
+            message: "Work logs already exist for this job card",
+          });
+        }
+      }
     }
 
     const partsUsed = normalizePartsUsed(req.body.partsUsed ?? jobCard.partsUsed);
@@ -763,9 +1016,9 @@ export const updateJobCard = async (req, res, next) => {
       return res.status(400).json({ message: partsSubtotalResult.error });
     }
 
-    const shouldDeduct =
+    const isTransitioningToCompleted =
       nextStatus === "COMPLETED" && jobCard.status !== "COMPLETED";
-    if (shouldDeduct && partsUsed.length > 0) {
+    if (isTransitioningToCompleted && partsUsed.length > 0) {
       for (const part of partsUsed) {
         const item = resolveInventoryItemForPart(part, inventoryContext);
         if (!item) {
@@ -801,14 +1054,9 @@ export const updateJobCard = async (req, res, next) => {
       assignedWorkers = result.snapshots;
     }
 
-    const resolvedAssignedWorker =
+    let resolvedAssignedWorker =
       req.body.assignedWorker !== undefined
         ? req.body.assignedWorker
-        : assignedWorkers?.length
-        ? assignedWorkers
-            .map((worker) => worker.name)
-            .filter(Boolean)
-            .join(", ")
         : jobCard.assignedWorker;
 
     const normalizedRewards =
@@ -817,6 +1065,21 @@ export const updateJobCard = async (req, res, next) => {
         : normalizeAppliedRewards(jobCard.appliedRewards);
 
     const servicesForPricing = incomingServices ?? jobCard.services;
+    const derivedAssignedWorkers = await deriveAssignedWorkersFromServices(
+      servicesForPricing
+    );
+    if (derivedAssignedWorkers.length > 0) {
+      assignedWorkers = derivedAssignedWorkers;
+      resolvedAssignedWorker = derivedAssignedWorkers
+        .map((worker) => worker.name)
+        .filter(Boolean)
+        .join(", ");
+    } else if ((!resolvedAssignedWorker || !String(resolvedAssignedWorker).trim()) && assignedWorkers?.length) {
+      resolvedAssignedWorker = assignedWorkers
+        .map((worker) => worker.name)
+        .filter(Boolean)
+        .join(", ");
+    }
     const fallbackLaborCharges =
       req.body.laborCharges !== undefined
         ? toNumber(req.body.laborCharges)
@@ -850,6 +1113,10 @@ export const updateJobCard = async (req, res, next) => {
         ? jobCard.loyaltyAppliedAt
         : new Date()
       : null;
+    const completedAt =
+      nextStatus === "COMPLETED"
+        ? jobCard.completedAt || new Date()
+        : jobCard.completedAt || null;
 
     const updatePayload = {
       assignedWorker: resolvedAssignedWorker,
@@ -870,12 +1137,24 @@ export const updateJobCard = async (req, res, next) => {
       serviceTypeIds: collectServiceTypeIds(servicesForPricing),
       services: servicesForPricing,
       appliedRewards: persistedAppliedRewards,
+      completedAt,
     };
 
     const updated = await JobCard.findByIdAndUpdate(id, updatePayload, {
       new: true,
       runValidators: true,
     });
+
+    if (isTransitioningToCompleted) {
+      const logsResult = await createWorkLogsForCompletedJobCard({
+        jobCard: updated,
+        services: servicesForPricing,
+        completedAt,
+      });
+      if (logsResult?.error) {
+        return res.status(400).json({ message: logsResult.error });
+      }
+    }
 
     return res.json(updated);
   } catch (error) {

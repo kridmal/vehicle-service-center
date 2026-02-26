@@ -27,8 +27,10 @@ import JobCardBilling from "./pages/invoices/JobCardBilling.jsx";
 import InventoryPage from "./pages/inventory/InventoryPage.jsx";
 import Staff from "./pages/Staff.jsx";
 import Attendance from "./pages/Attendance.jsx";
+import Advances from "./pages/Advances.jsx";
 import Payroll from "./pages/Payroll.jsx";
 import Payslips from "./pages/Payslips.jsx";
+import WorkLogs from "./pages/WorkLogs.jsx";
 import VehicleConfiguration from "./pages/vehicles/VehicleConfiguration.jsx";
 import PurchasesList from "./pages/purchases/PurchasesList.jsx";
 import PurchaseCreate from "./pages/purchases/PurchaseCreate.jsx";
@@ -55,8 +57,10 @@ function App() {
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/staff" element={<Staff />} />
             <Route path="/attendance" element={<Attendance />} />
+            <Route path="/advances" element={<Advances />} />
             <Route path="/leave" element={<Leave />} />
             <Route path="/payroll" element={<Payroll />} />
+            <Route path="/worklogs" element={<WorkLogs />} />
             <Route path="/payslips" element={<Payslips />} />
             <Route path="/sales" element={<SalesPage />} />
             <Route path="/sales/:id/invoice" element={<SalesInvoiceView />} />

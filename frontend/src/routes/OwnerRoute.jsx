@@ -8,6 +8,8 @@ const PATH_PERMISSION_MAP = [
   { prefix: "/reports", permission: "viewReports" },
   { prefix: "/staff", permission: "manageEmployees" },
   { prefix: "/attendance", permission: "markAttendance" },
+  { prefix: "/advances", permission: "runPayroll" },
+  { prefix: "/worklogs", permission: "runPayroll" },
   { prefix: "/payroll", permission: "runPayroll" },
   { prefix: "/payslips", permission: "runPayroll" },
   { prefix: "/sales", permission: "manageSales" },

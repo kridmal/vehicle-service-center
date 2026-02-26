@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
 import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
@@ -32,6 +32,9 @@ function JobCardNew() {
   const [selectedServices, setSelectedServices] = useState([]);
   const [serviceAddError, setServiceAddError] = useState("");
   const [serviceTasksDraft, setServiceTasksDraft] = useState([]);
+  const staffSearchTimersRef = useRef({});
+  const [taskStaffSearchTerms, setTaskStaffSearchTerms] = useState({});
+  const [taskStaffSearchResults, setTaskStaffSearchResults] = useState({});
   const [notes, setNotes] = useState("");
   const [ownerSearch, setOwnerSearch] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
@@ -131,6 +134,14 @@ function JobCardNew() {
       options.push(String(value));
     }
     return options;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(staffSearchTimersRef.current).forEach((timerId) => {
+        clearTimeout(timerId);
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -395,6 +406,7 @@ function JobCardNew() {
               taskName: task.title,
               title: task.title,
               isRequired: Boolean(task.isRequired),
+              selected: false,
               completed: false,
               laborHours: roundTaskCurrency(
                 toNonNegativeNumber(task.laborHoursDefault)
@@ -404,6 +416,8 @@ function JobCardNew() {
               ),
               isBillable:
                 task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+              assignedStaffId: null,
+              assignedStaffSnapshot: { employeeNo: "", name: "" },
             };
           })
           .filter((task) => task.title)
@@ -439,11 +453,17 @@ function JobCardNew() {
           taskName: task.taskName || task.title,
           title: task.title,
           isRequired: Boolean(task.isRequired),
+          selected: Boolean(task.completed ?? task.selected),
           completed: Boolean(task.completed),
           laborHours: roundTaskCurrency(toNonNegativeNumber(task.laborHours)),
           laborCharge: roundTaskCurrency(toNonNegativeNumber(task.laborCharge)),
           isBillable:
             task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+          assignedStaffId: task.assignedStaffId || null,
+          assignedStaffSnapshot: {
+            employeeNo: String(task?.assignedStaffSnapshot?.employeeNo || "").trim(),
+            name: String(task?.assignedStaffSnapshot?.name || "").trim(),
+          },
         };
       })
       .filter((task) => task.title);
@@ -472,7 +492,13 @@ function JobCardNew() {
       prev.map((service) => {
         if (String(service.serviceType) !== String(serviceType)) return service;
         const tasks = (service.tasks || []).map((task, index) =>
-          index === taskIndex ? { ...task, completed: !task.completed } : task
+          index === taskIndex
+            ? {
+                ...task,
+                completed: !task.completed,
+                selected: !task.completed,
+              }
+            : task
         );
         return { ...service, tasks };
       })
@@ -507,6 +533,7 @@ function JobCardNew() {
           tasks: tasks.map((task) => ({
             ...task,
             completed: shouldSelectAll,
+            selected: shouldSelectAll,
           })),
         };
       })
@@ -515,6 +542,82 @@ function JobCardNew() {
 
   const getTaskRowKey = (serviceType, task, taskIndex) =>
     getTaskInstanceId(String(serviceType || ""), task, taskIndex);
+
+  const formatStaffOptionLabel = (staff) =>
+    `${String(staff?.employeeNo || "").trim()} - ${String(staff?.name || "").trim()}`;
+
+  const getTaskAssignedLabel = (task) => {
+    const employeeNo = String(task?.assignedStaffSnapshot?.employeeNo || "").trim();
+    const name = String(task?.assignedStaffSnapshot?.name || "").trim();
+    if (!employeeNo && !name) return "";
+    return `${employeeNo} - ${name}`.trim();
+  };
+
+  const updateTaskAssignedStaff = (serviceType, taskIndex, staff) => {
+    setSelectedServices((prev) =>
+      prev.map((service) => {
+        if (String(service.serviceType) !== String(serviceType)) return service;
+        const tasks = (service.tasks || []).map((task, index) => {
+          if (index !== taskIndex) return task;
+          if (!staff) {
+            return {
+              ...task,
+              assignedStaffId: null,
+              assignedStaffSnapshot: { employeeNo: "", name: "" },
+            };
+          }
+          return {
+            ...task,
+            assignedStaffId: staff._id,
+            assignedStaffSnapshot: {
+              employeeNo: staff.employeeNo || "",
+              name: staff.name || "",
+            },
+          };
+        });
+        return { ...service, tasks };
+      })
+    );
+  };
+
+  const queueTaskStaffSearch = (serviceType, taskIndex, rowKey, nextValue) => {
+    setTaskStaffSearchTerms((prev) => ({ ...prev, [rowKey]: nextValue }));
+    const query = String(nextValue || "").trim();
+    const currentOptions = taskStaffSearchResults[rowKey] || [];
+    const exactMatch = currentOptions.find(
+      (staff) => formatStaffOptionLabel(staff).toLowerCase() === query.toLowerCase()
+    );
+    if (exactMatch) {
+      updateTaskAssignedStaff(serviceType, taskIndex, exactMatch);
+    } else if (!query) {
+      updateTaskAssignedStaff(serviceType, taskIndex, null);
+    }
+
+    if (staffSearchTimersRef.current[rowKey]) {
+      clearTimeout(staffSearchTimersRef.current[rowKey]);
+    }
+    if (!query) {
+      setTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: [] }));
+      return;
+    }
+
+    staffSearchTimersRef.current[rowKey] = setTimeout(async () => {
+      try {
+        const { data } = await api.get("/staff/search", { params: { q: query } });
+        const rows = Array.isArray(data) ? data : [];
+        setTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: rows }));
+        const matched = rows.find(
+          (staff) => formatStaffOptionLabel(staff).toLowerCase() === query.toLowerCase()
+        );
+        if (matched) {
+          updateTaskAssignedStaff(serviceType, taskIndex, matched);
+        }
+      } catch (error) {
+        handleAuthRedirect(error.response?.status);
+        setTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: [] }));
+      }
+    }, 300);
+  };
 
   const normalizePreviewReward = (reward) => {
     if (!reward || !reward.ruleId) return null;
@@ -1820,71 +1923,98 @@ function JobCardNew() {
                             <span>Task</span>
                             <span>Labor Hours</span>
                             <span>Labor Charge (LKR)</span>
+                            <span>Assigned Staff</span>
                             <span>Billable</span>
                           </div>
-                          {service.tasks.map((task, index) => (
-                            <div
-                              key={getTaskRowKey(service.serviceType, task, index)}
-                              className="job-card-task-table__row"
-                            >
-                              <label className="job-card-task-table__task">
+                          {service.tasks.map((task, index) => {
+                            const rowKey = getTaskRowKey(service.serviceType, task, index);
+                            const datalistId = `job-task-staff-${rowKey}`;
+                            const options = taskStaffSearchResults[rowKey] || [];
+                            const staffValue =
+                              taskStaffSearchTerms[rowKey] ?? getTaskAssignedLabel(task);
+                            return (
+                              <div key={rowKey} className="job-card-task-table__row">
+                                <label className="job-card-task-table__task">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(task.completed)}
+                                    onChange={() =>
+                                      toggleSelectedTask(service.serviceType, index)
+                                    }
+                                  />
+                                  <span>
+                                    {task.title}
+                                    {task.isRequired ? " (Required)" : ""}
+                                  </span>
+                                </label>
                                 <input
-                                  type="checkbox"
-                                  checked={Boolean(task.completed)}
-                                  onChange={() =>
-                                    toggleSelectedTask(service.serviceType, index)
-                                  }
-                                />
-                                <span>
-                                  {task.title}
-                                  {task.isRequired ? " (Required)" : ""}
-                                </span>
-                              </label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.25"
-                                value={task.laborHours ?? 0}
-                                onChange={(event) =>
-                                  updateSelectedTaskLabor(
-                                    service.serviceType,
-                                    index,
-                                    "laborHours",
-                                    event.target.value
-                                  )
-                                }
-                              />
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={task.laborCharge ?? 0}
-                                onChange={(event) =>
-                                  updateSelectedTaskLabor(
-                                    service.serviceType,
-                                    index,
-                                    "laborCharge",
-                                    event.target.value
-                                  )
-                                }
-                              />
-                              <label className="job-card-task-table__billable">
-                                <input
-                                  type="checkbox"
-                                  checked={task.isBillable !== false}
+                                  type="number"
+                                  min="0"
+                                  step="0.25"
+                                  value={task.laborHours ?? 0}
                                   onChange={(event) =>
                                     updateSelectedTaskLabor(
                                       service.serviceType,
                                       index,
-                                      "isBillable",
-                                      event.target.checked
+                                      "laborHours",
+                                      event.target.value
                                     )
                                   }
                                 />
-                                <span>Yes</span>
-                              </label>
-                            </div>
-                          ))}
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={task.laborCharge ?? 0}
+                                  onChange={(event) =>
+                                    updateSelectedTaskLabor(
+                                      service.serviceType,
+                                      index,
+                                      "laborCharge",
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                                <input
+                                  type="search"
+                                  list={datalistId}
+                                  value={staffValue}
+                                  placeholder="8071302 - Staff Name"
+                                  onChange={(event) =>
+                                    queueTaskStaffSearch(
+                                      service.serviceType,
+                                      index,
+                                      rowKey,
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                                <datalist id={datalistId}>
+                                  {options.map((staff) => (
+                                    <option
+                                      key={staff._id}
+                                      value={formatStaffOptionLabel(staff)}
+                                    />
+                                  ))}
+                                </datalist>
+                                <label className="job-card-task-table__billable">
+                                  <input
+                                    type="checkbox"
+                                    checked={task.isBillable !== false}
+                                    onChange={(event) =>
+                                      updateSelectedTaskLabor(
+                                        service.serviceType,
+                                        index,
+                                        "isBillable",
+                                        event.target.checked
+                                      )
+                                    }
+                                  />
+                                  <span>Yes</span>
+                                </label>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="job-card-muted">

@@ -459,7 +459,7 @@
 .job-card-task-table__head,
 .job-card-task-table__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px 130px 90px;
+  grid-template-columns: minmax(0, 1fr) 110px 120px minmax(180px, 1fr) 90px;
   gap: 10px;
   align-items: center;
 }
@@ -529,7 +529,7 @@
 @container (max-width: 700px) {
   .job-card-task-table__head,
   .job-card-task-table__row {
-    grid-template-columns: minmax(0, 1fr) 96px 108px 74px;
+    grid-template-columns: minmax(0, 1fr) 96px 108px minmax(160px, 1fr) 74px;
     gap: 8px;
   }
 
@@ -550,29 +550,9 @@
   }
 
   .job-card-task-table__row {
-    grid-template-columns: minmax(0, 1fr) 1fr 1fr auto;
-    grid-template-areas:
-      "task task task task"
-      "hours charge billable billable";
+    grid-template-columns: 1fr;
     gap: 8px;
     align-items: center;
-  }
-
-  .job-card-task-table__task {
-    grid-area: task;
-  }
-
-  .job-card-task-table__row > input[type="number"]:nth-of-type(1) {
-    grid-area: hours;
-  }
-
-  .job-card-task-table__row > input[type="number"]:nth-of-type(2) {
-    grid-area: charge;
-  }
-
-  .job-card-task-table__billable {
-    grid-area: billable;
-    justify-self: start;
   }
 }
 
@@ -846,7 +826,7 @@
 
   .job-card-task-table__head,
   .job-card-task-table__row {
-    grid-template-columns: minmax(0, 1fr) 108px 120px 80px;
+    grid-template-columns: minmax(0, 1fr) 108px 120px minmax(170px, 1fr) 80px;
     gap: 10px;
   }
 }
@@ -881,7 +861,7 @@
   }
 
   .job-card-task-table__row {
-    grid-template-columns: minmax(0, 1fr) 92px 104px 72px;
+    grid-template-columns: 1fr;
     gap: 8px;
   }
 

@@ -13,6 +13,9 @@ const payrollRunSchema = new mongoose.Schema(
     },
     generatedAt: { type: Date, default: Date.now },
     generatedBy: { type: String, trim: true, default: "" },
+    otEnabled: { type: Boolean, default: false },
+    otRatePerHourUsed: { type: Number, min: 0, default: 0 },
+    standardDailyHoursUsed: { type: Number, min: 0, default: 8 },
     totals: {
       totalGross: { type: Number, min: 0, default: 0 },
       totalDeductions: { type: Number, min: 0, default: 0 },

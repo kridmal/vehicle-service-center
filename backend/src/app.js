@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import advanceRoutes from "./routes/advanceRoutes.js";
 import auditRoutes from "./routes/auditRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
@@ -30,6 +31,7 @@ import vehicleMasterRoutes from "./routes/vehicleMasterRoutes.js";
 import vehicleRoutes from "./routes/vehicleRoutes.js";
 import workCalendarRoutes from "./routes/workCalendarRoutes.js";
 import workCalendarDayRoutes from "./routes/workCalendarDayRoutes.js";
+import workLogRoutes from "./routes/workLogRoutes.js";
 import workerRoutes from "./routes/workerRoutes.js";
 import { errorHandler, notFound } from "./middlewares/errorMiddleware.js";
 
@@ -43,6 +45,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/advances", advanceRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/dashboard", dashboardRoutes);
@@ -72,6 +75,7 @@ app.use("/api/vehicle-master", vehicleMasterRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/work-calendars", workCalendarRoutes);
 app.use("/api/work-calendar", workCalendarDayRoutes);
+app.use("/api/worklogs", workLogRoutes);
 app.use("/api/workers", workerRoutes);
 
 app.use(notFound);

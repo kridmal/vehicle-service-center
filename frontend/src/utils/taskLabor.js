@@ -61,14 +61,18 @@ export const normalizeTaskSnapshot = (
     if (!title) return null;
     return {
       taskInstanceId: getTaskInstanceId(serviceType, { title }, taskIndex),
+      serviceTypeId: serviceType || "",
       taskId: null,
       taskName: title,
       title,
       isRequired: false,
+      selected: resolveTaskSelected(null, defaultCompleted),
       completed: resolveTaskSelected(null, defaultCompleted),
       laborHours: 0,
       laborCharge: 0,
       isBillable: true,
+      assignedStaffId: null,
+      assignedStaffSnapshot: { employeeNo: "", name: "" },
     };
   }
 
@@ -82,14 +86,21 @@ export const normalizeTaskSnapshot = (
 
   return {
     taskInstanceId,
+    serviceTypeId: serviceType || resolveTaskServiceType(task),
     taskId: taskId ? String(taskId) : null,
     taskName: title,
     title,
     isRequired: Boolean(task.isRequired),
+    selected: resolveTaskSelected(task, defaultCompleted),
     completed: resolveTaskSelected(task, defaultCompleted),
     laborHours: roundCurrency(toNonNegativeNumber(task.laborHours)),
     laborCharge: roundCurrency(toNonNegativeNumber(task.laborCharge)),
     isBillable: resolveTaskBillable(task),
+    assignedStaffId: task.assignedStaffId || null,
+    assignedStaffSnapshot: {
+      employeeNo: String(task?.assignedStaffSnapshot?.employeeNo || "").trim(),
+      name: String(task?.assignedStaffSnapshot?.name || "").trim(),
+    },
   };
 };
 

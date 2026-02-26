@@ -108,6 +108,10 @@ function JobCardPrint() {
           id: `${serviceName}-${task?.taskId || task?.title || taskIndex}`,
           serviceName,
           description: task?.title || task?.taskName || "-",
+          assignedStaff:
+            task?.assignedStaffSnapshot?.employeeNo && task?.assignedStaffSnapshot?.name
+              ? `${task.assignedStaffSnapshot.employeeNo} - ${task.assignedStaffSnapshot.name}`
+              : task?.assignedStaffSnapshot?.name || "-",
           laborHours:
             task?.laborHours === null || task?.laborHours === undefined
               ? ""
@@ -277,6 +281,7 @@ function JobCardPrint() {
                 <tr>
                   <th>Service Type</th>
                   <th>Task Description</th>
+                  <th>Assigned Staff</th>
                   <th>Hours</th>
                   <th>Charge</th>
                 </tr>
@@ -284,13 +289,14 @@ function JobCardPrint() {
               <tbody>
                 {taskRows.length === 0 ? (
                   <tr>
-                    <td colSpan={4}>No task details available.</td>
+                    <td colSpan={5}>No task details available.</td>
                   </tr>
                 ) : (
                   taskRows.map((task) => (
                     <tr key={task.id}>
                       <td>{task.serviceName}</td>
                       <td>{task.description}</td>
+                      <td>{task.assignedStaff}</td>
                       <td>
                         {task.laborHours === "" ? "-" : Number(task.laborHours).toFixed(2)}
                       </td>
@@ -304,6 +310,7 @@ function JobCardPrint() {
                 )}
                 {blankTaskRows.map((blankRow) => (
                   <tr key={blankRow.id} className="job-card-print-table__blank-row">
+                    <td>&nbsp;</td>
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
