@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 import Counter from "../models/Counter.js";
 import Dealer from "../models/Dealer.js";
+import DealerPayment from "../models/DealerPayment.js";
+import PurchaseInvoice from "../models/PurchaseInvoice.js";
+import SupplierPayment from "../models/SupplierPayment.js";
+import { allocatePayment } from "../utils/allocatePayment.js";
+import { roundCurrency, toNumber } from "../utils/purchaseTotals.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -89,6 +94,161 @@ export const getDealerById = async (req, res, next) => {
       return res.status(404).json({ message: "Dealer not found" });
     }
     return res.json(dealer);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getDealerPendingSummary = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ message: "Invalid dealer id" });
+    }
+    const dealer = await Dealer.findById(id);
+    if (!dealer) return res.status(404).json({ message: "Dealer not found" });
+
+    const pendingInvoices = await PurchaseInvoice.find({
+      dealerId: dealer._id,
+      status: { $in: ["UNPAID", "PARTIALLY_PAID"] },
+    }).select("totalAmount paidAmount balanceAmount status purchaseDate");
+
+    const pendingCount = pendingInvoices.length;
+    const totalPendingBalance = roundCurrency(
+      pendingInvoices.reduce((sum, inv) => sum + toNumber(inv.balanceAmount), 0)
+    );
+
+    return res.json({ dealer: { _id: dealer._id, name: dealer.name }, pendingCount, totalPendingBalance });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const isTransactionUnsupportedError = (error) =>
+  /transaction|replica set|mongos/i.test(String(error?.message || ""));
+
+export const payDealerBalance = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ message: "Invalid dealer id" });
+    }
+    const dealer = await Dealer.findById(id);
+    if (!dealer) return res.status(404).json({ message: "Dealer not found" });
+
+    const amount = roundCurrency(Math.max(0, toNumber(req.body?.amount)));
+    if (amount <= 0) {
+      return res.status(400).json({ message: "Payment amount must be greater than 0" });
+    }
+    const notes = String(req.body?.notes || "").trim();
+    const userId = req.user?.id || null;
+
+    const pendingInvoices = await PurchaseInvoice.find({
+      dealerId: dealer._id,
+      status: { $in: ["UNPAID", "PARTIALLY_PAID"] },
+    }).sort({ purchaseDate: 1, createdAt: 1 });
+
+    if (pendingInvoices.length === 0) {
+      return res.status(400).json({ message: "No pending invoices for this dealer" });
+    }
+
+    const { updatedInvoices, unallocated } = allocatePayment(pendingInvoices, amount);
+
+    const touched = updatedInvoices.filter((inv) => (inv._amountApplied || 0) > 0);
+    if (touched.length === 0) {
+      return res.status(400).json({ message: "No funds could be allocated" });
+    }
+
+    const applyUpdates = async (session = null) => {
+      const allocations = [];
+      for (const inv of touched) {
+        const appliedAmount = inv._amountApplied;
+        const updateOp = PurchaseInvoice.findByIdAndUpdate(
+          inv._id,
+          {
+            $set: {
+              paidAmount: inv.paidAmount,
+              balanceAmount: inv.balanceAmount,
+              status: inv.status,
+            },
+          },
+          { new: true }
+        );
+        if (session) updateOp.session(session);
+        await updateOp;
+
+        const paymentDoc = {
+          purchaseInvoiceId: inv._id,
+          paidDate: new Date(),
+          amount: appliedAmount,
+          method: "BANK",
+          note: `Dealer batch payment${notes ? `: ${notes}` : ""}`,
+          createdBy: userId,
+        };
+        if (session) {
+          await SupplierPayment.create([paymentDoc], { session });
+        } else {
+          await SupplierPayment.create(paymentDoc);
+        }
+
+        allocations.push({
+          invoiceId: inv._id,
+          amountApplied: appliedAmount,
+          resultingStatus: inv.status,
+        });
+      }
+
+      const dealerPaymentDoc = {
+        dealer: dealer._id,
+        amount,
+        date: new Date(),
+        notes,
+        allocations,
+        createdBy: userId,
+      };
+      if (session) {
+        await DealerPayment.create([dealerPaymentDoc], { session });
+      } else {
+        await DealerPayment.create(dealerPaymentDoc);
+      }
+      return allocations;
+    };
+
+    let allocations;
+    try {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          allocations = await applyUpdates(session);
+        });
+      } finally {
+        await session.endSession();
+      }
+    } catch (error) {
+      if (isTransactionUnsupportedError(error)) {
+        allocations = await applyUpdates(null);
+      } else {
+        throw error;
+      }
+    }
+
+    const allocationSummary = allocations.map((a) => {
+      const inv = updatedInvoices.find(
+        (u) => String(u._id) === String(a.invoiceId)
+      );
+      return {
+        invoiceId: a.invoiceId,
+        amountApplied: a.amountApplied,
+        resultingStatus: a.resultingStatus,
+        balanceRemaining: inv?.balanceAmount ?? 0,
+      };
+    });
+
+    return res.json({
+      totalPaid: amount,
+      unallocated,
+      allocations: allocationSummary,
+    });
   } catch (error) {
     return next(error);
   }

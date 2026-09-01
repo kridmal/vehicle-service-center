@@ -153,6 +153,20 @@ const buildSidebarSections = ({ can, isOwner }) => [
         to: "/purchases",
         visible: can("manageInventory"),
       },
+      {
+        type: "link",
+        key: "purchase_requests",
+        label: "Purchase Requests",
+        to: "/purchase-requests",
+        visible: can("manageInventory"),
+      },
+      {
+        type: "link",
+        key: "dealer_balances",
+        label: "Dealer Balances",
+        to: "/dealer-balances",
+        visible: can("manageInventory"),
+      },
     ],
   },
   {

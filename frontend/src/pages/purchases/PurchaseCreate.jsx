@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../../components/PageHeader.jsx";
 import api from "../../services/api.js";
+import DealerSelector from "./DealerSelector.jsx";
 import "./Purchases.css";
 
 const formatCurrency = (value) =>
@@ -16,25 +17,13 @@ const todayIso = new Date().toISOString().slice(0, 10);
 
 function PurchaseCreate() {
   const navigate = useNavigate();
-  const [dealers, setDealers] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const [dealerSearch, setDealerSearch] = useState("");
   const [selectedDealerId, setSelectedDealerId] = useState("");
-  const [showDealerForm, setShowDealerForm] = useState(false);
-  const [dealerForm, setDealerForm] = useState({
-    dealerCode: "",
-    name: "",
-    address: "",
-    phone1: "",
-    phone2: "",
-    email: "",
-    notes: "",
-  });
 
   const [dealerInvoiceNumber, setDealerInvoiceNumber] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(todayIso);
@@ -54,11 +43,6 @@ function PurchaseCreate() {
   const [taxRate, setTaxRate] = useState("0");
   const [paidNow, setPaidNow] = useState("0");
 
-  const loadDealers = useCallback(async () => {
-    const { data } = await api.get("/dealers");
-    setDealers(Array.isArray(data) ? data : []);
-  }, []);
-
   const loadInventory = useCallback(async () => {
     const { data } = await api.get("/inventory");
     setInventoryItems(Array.isArray(data) ? data : []);
@@ -69,7 +53,7 @@ function PurchaseCreate() {
       setIsLoading(true);
       setError("");
       try {
-        await Promise.all([loadDealers(), loadInventory()]);
+        await loadInventory();
       } catch (requestError) {
         if (
           requestError.response?.status === 401 ||
@@ -80,7 +64,7 @@ function PurchaseCreate() {
         }
         setError(
           requestError.response?.data?.message ||
-            "Unable to load dealers and inventory right now."
+            "Unable to load inventory right now."
         );
       } finally {
         setIsLoading(false);
@@ -88,12 +72,7 @@ function PurchaseCreate() {
     };
 
     bootstrap();
-  }, [loadDealers, loadInventory, navigate]);
-
-  const selectedDealer = useMemo(
-    () => dealers.find((dealer) => String(dealer._id) === String(selectedDealerId)) || null,
-    [dealers, selectedDealerId]
-  );
+  }, [loadInventory, navigate]);
 
   const selectedInventory = useMemo(
     () =>
@@ -133,71 +112,6 @@ function PurchaseCreate() {
   const totalAmount = taxableAmount + taxAmount;
   const paidNowValue = Math.max(0, Number(paidNow) || 0);
   const balanceAmount = Math.max(0, totalAmount - Math.min(totalAmount, paidNowValue));
-
-  const handleDealerSearchChange = (value) => {
-    setDealerSearch(value);
-    const query = value.trim().toLowerCase();
-    const match =
-      dealers.find(
-        (dealer) =>
-          dealer.dealerCode?.toLowerCase() === query ||
-          dealer.name?.toLowerCase() === query ||
-          `${dealer.dealerCode} - ${dealer.name}`.toLowerCase() === query
-      ) || null;
-    if (match) {
-      setSelectedDealerId(match._id);
-      setDealerSearch(`${match.dealerCode} - ${match.name}`);
-      setShowDealerForm(false);
-      setDealerForm((prev) => ({ ...prev, name: "", dealerCode: "" }));
-      return;
-    }
-    setSelectedDealerId("");
-  };
-
-  const handleCreateDealer = async () => {
-    if (!dealerForm.name.trim()) {
-      setError("Dealer name is required to create a dealer.");
-      return;
-    }
-    setError("");
-    setNotice("");
-    try {
-      const { data } = await api.post("/dealers", {
-        dealerCode: dealerForm.dealerCode.trim(),
-        name: dealerForm.name.trim(),
-        address: dealerForm.address.trim(),
-        phone1: dealerForm.phone1.trim(),
-        phone2: dealerForm.phone2.trim(),
-        email: dealerForm.email.trim(),
-        notes: dealerForm.notes.trim(),
-      });
-      await loadDealers();
-      setSelectedDealerId(data._id);
-      setDealerSearch(`${data.dealerCode} - ${data.name}`);
-      setShowDealerForm(false);
-      setDealerForm({
-        dealerCode: "",
-        name: "",
-        address: "",
-        phone1: "",
-        phone2: "",
-        email: "",
-        notes: "",
-      });
-      setNotice(`Dealer ${data.dealerCode} created.`);
-    } catch (requestError) {
-      if (
-        requestError.response?.status === 401 ||
-        requestError.response?.status === 403
-      ) {
-        navigate("/login", { replace: true });
-        return;
-      }
-      setError(
-        requestError.response?.data?.message || "Unable to create dealer right now."
-      );
-    }
-  };
 
   const addLineItem = () => {
     if (!selectedInventory) return;
@@ -325,159 +239,7 @@ function PurchaseCreate() {
       {notice ? <p className="purchases-alert purchases-alert--success">{notice}</p> : null}
 
       <form onSubmit={handleSubmit} className="purchases-card">
-        <div className="purchases-head">
-          <div>
-            <h2>Dealer Selection</h2>
-            <p>Select dealer by code/name and auto-fill dealer details.</p>
-          </div>
-          <button
-            type="button"
-            className="purchases-button-ghost"
-            onClick={() => setShowDealerForm((prev) => !prev)}
-          >
-            {showDealerForm ? "Hide Dealer Form" : "+ Add Dealer"}
-          </button>
-        </div>
-
-        <div className="purchases-grid">
-          <div className="purchases-field">
-            <label htmlFor="dealer-search">Dealer (Code or Name)</label>
-            <input
-              id="dealer-search"
-              type="search"
-              list="dealer-options"
-              value={dealerSearch}
-              onChange={(event) => handleDealerSearchChange(event.target.value)}
-              placeholder="Type dealer code or name"
-              disabled={isLoading}
-            />
-            <datalist id="dealer-options">
-              {dealers.map((dealer) => (
-                <option key={dealer._id} value={`${dealer.dealerCode} - ${dealer.name}`} />
-              ))}
-              {dealers.map((dealer) => (
-                <option key={`${dealer._id}-code`} value={dealer.dealerCode} />
-              ))}
-              {dealers.map((dealer) => (
-                <option key={`${dealer._id}-name`} value={dealer.name} />
-              ))}
-            </datalist>
-          </div>
-          <div className="purchases-field">
-            <label htmlFor="dealer-code-readonly">Dealer Code</label>
-            <input
-              id="dealer-code-readonly"
-              value={selectedDealer?.dealerCode || "-"}
-              readOnly
-            />
-          </div>
-        </div>
-
-        <div className="purchases-grid">
-          <div className="purchases-field">
-            <label htmlFor="dealer-address-readonly">Address</label>
-            <input
-              id="dealer-address-readonly"
-              value={selectedDealer?.address || "-"}
-              readOnly
-            />
-          </div>
-          <div className="purchases-field">
-            <label htmlFor="dealer-phone-readonly">Phones</label>
-            <input
-              id="dealer-phone-readonly"
-              value={
-                selectedDealer
-                  ? [selectedDealer.phone1, selectedDealer.phone2]
-                      .filter(Boolean)
-                      .join(" / ") || "-"
-                  : "-"
-              }
-              readOnly
-            />
-          </div>
-        </div>
-
-        {showDealerForm ? (
-          <div className="purchases-card">
-            <div className="purchases-grid">
-              <div className="purchases-field">
-                <label htmlFor="new-dealer-code">Dealer Code (optional)</label>
-                <input
-                  id="new-dealer-code"
-                  value={dealerForm.dealerCode}
-                  onChange={(event) =>
-                    setDealerForm((prev) => ({ ...prev, dealerCode: event.target.value }))
-                  }
-                />
-              </div>
-              <div className="purchases-field">
-                <label htmlFor="new-dealer-name">Dealer Name</label>
-                <input
-                  id="new-dealer-name"
-                  value={dealerForm.name}
-                  onChange={(event) =>
-                    setDealerForm((prev) => ({ ...prev, name: event.target.value }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="purchases-grid">
-              <div className="purchases-field">
-                <label htmlFor="new-dealer-address">Address</label>
-                <input
-                  id="new-dealer-address"
-                  value={dealerForm.address}
-                  onChange={(event) =>
-                    setDealerForm((prev) => ({ ...prev, address: event.target.value }))
-                  }
-                />
-              </div>
-              <div className="purchases-field">
-                <label htmlFor="new-dealer-phone1">Phone 1</label>
-                <input
-                  id="new-dealer-phone1"
-                  value={dealerForm.phone1}
-                  onChange={(event) =>
-                    setDealerForm((prev) => ({ ...prev, phone1: event.target.value }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="purchases-grid">
-              <div className="purchases-field">
-                <label htmlFor="new-dealer-phone2">Phone 2</label>
-                <input
-                  id="new-dealer-phone2"
-                  value={dealerForm.phone2}
-                  onChange={(event) =>
-                    setDealerForm((prev) => ({ ...prev, phone2: event.target.value }))
-                  }
-                />
-              </div>
-              <div className="purchases-field">
-                <label htmlFor="new-dealer-email">Email</label>
-                <input
-                  id="new-dealer-email"
-                  type="email"
-                  value={dealerForm.email}
-                  onChange={(event) =>
-                    setDealerForm((prev) => ({ ...prev, email: event.target.value }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="purchases-actions">
-              <button
-                type="button"
-                className="purchases-button"
-                onClick={handleCreateDealer}
-              >
-                Save Dealer
-              </button>
-            </div>
-          </div>
-        ) : null}
+        <DealerSelector onDealerChange={(id) => setSelectedDealerId(id)} />
 
         <div className="purchases-grid">
           <div className="purchases-field">

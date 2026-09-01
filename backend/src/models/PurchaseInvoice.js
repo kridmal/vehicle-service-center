@@ -47,6 +47,11 @@ const purchaseInvoiceSchema = new mongoose.Schema(
     balanceAmount: { type: Number, min: 0, default: 0 },
     nextVisitDate: { type: Date, default: null },
     remarks: { type: String, trim: true, default: "" },
+    purchaseRequestId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PurchaseRequest",
+      default: null,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

@@ -35,6 +35,10 @@ import VehicleConfiguration from "./pages/vehicles/VehicleConfiguration.jsx";
 import PurchasesList from "./pages/purchases/PurchasesList.jsx";
 import PurchaseCreate from "./pages/purchases/PurchaseCreate.jsx";
 import PurchaseDetail from "./pages/purchases/PurchaseDetail.jsx";
+import PurchaseRequests from "./pages/purchases/PurchaseRequests.jsx";
+import PurchaseRequestCreate from "./pages/purchases/PurchaseRequestCreate.jsx";
+import PurchaseRequestDetail from "./pages/purchases/PurchaseRequestDetail.jsx";
+import DealerBalances from "./pages/purchases/DealerBalances.jsx";
 
 function App() {
   const { isAuthenticated } = useAuth();
@@ -67,6 +71,10 @@ function App() {
             <Route path="/purchases" element={<PurchasesList />} />
             <Route path="/purchases/new" element={<PurchaseCreate />} />
             <Route path="/purchases/:id" element={<PurchaseDetail />} />
+            <Route path="/purchase-requests" element={<PurchaseRequests />} />
+            <Route path="/purchase-requests/new" element={<PurchaseRequestCreate />} />
+            <Route path="/purchase-requests/:id" element={<PurchaseRequestDetail />} />
+            <Route path="/dealer-balances" element={<DealerBalances />} />
             <Route path="/loyalty" element={<LoyaltySettings />} />
             <Route path="/roles" element={<Roles />} />
             <Route path="/settings" element={<Settings />} />

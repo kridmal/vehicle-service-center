@@ -258,6 +258,22 @@
   gap: 12px;
 }
 
+/* Purchase Request status badges */
+.purchase-status--pr-draft {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.purchase-status--pr-sent {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.purchase-status--pr-converted {
+  background: #dcfce7;
+  color: #15803d;
+}
+
 @media (max-width: 900px) {
   .purchases-grid {
     grid-template-columns: 1fr;
