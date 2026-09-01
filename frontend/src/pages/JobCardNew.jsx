@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
+import StaffSearchInput from "../components/StaffSearchInput.jsx";
 import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import { createId } from "../utils/id.js";
 import api from "../services/api.js";
@@ -1960,7 +1961,6 @@ function JobCardNew() {
                           </div>
                           {service.tasks.map((task, index) => {
                             const rowKey = getTaskRowKey(service.serviceType, task, index);
-                            const datalistId = `job-task-staff-${rowKey}`;
                             const options = taskStaffSearchResults[rowKey] || [];
                             const staffValue =
                               taskStaffSearchTerms[rowKey] ?? getTaskAssignedLabel(task);
@@ -2007,28 +2007,30 @@ function JobCardNew() {
                                     )
                                   }
                                 />
-                                <input
-                                  type="search"
-                                  list={datalistId}
+                                <StaffSearchInput
                                   value={staffValue}
+                                  options={options}
                                   placeholder="8071302 - Staff Name"
-                                  onChange={(event) =>
+                                  onChange={(value) =>
                                     queueTaskStaffSearch(
                                       service.serviceType,
                                       index,
                                       rowKey,
-                                      event.target.value
+                                      value
                                     )
                                   }
+                                  onSelect={(staff) => {
+                                    setTaskStaffSearchTerms((prev) => ({
+                                      ...prev,
+                                      [rowKey]: formatStaffOptionLabel(staff),
+                                    }));
+                                    updateTaskAssignedStaff(service.serviceType, index, staff);
+                                    setTaskStaffSearchResults((prev) => ({
+                                      ...prev,
+                                      [rowKey]: [],
+                                    }));
+                                  }}
                                 />
-                                <datalist id={datalistId}>
-                                  {options.map((staff) => (
-                                    <option
-                                      key={staff._id}
-                                      value={formatStaffOptionLabel(staff)}
-                                    />
-                                  ))}
-                                </datalist>
                                 <label className="job-card-task-table__billable">
                                   <input
                                     type="checkbox"

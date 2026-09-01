@@ -314,9 +314,9 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
   .dashboard-hero {
-    padding: 20px;
+    padding: 16px;
   }
 
   .dashboard__kpis {

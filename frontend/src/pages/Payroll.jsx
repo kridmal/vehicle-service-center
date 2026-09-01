@@ -282,11 +282,11 @@ function Payroll() {
                 <tbody>
                   {otPreview.preview.map((entry) => (
                     <tr key={entry.staffId}>
-                      <td>{entry.name}</td>
-                      <td>{entry.monthlyLaborHours}</td>
-                      <td>{entry.targetHours}</td>
-                      <td>{entry.overtimeHours}</td>
-                      <td>
+                      <td data-label="Employee">{entry.name}</td>
+                      <td data-label="Labor Hours">{entry.monthlyLaborHours}</td>
+                      <td data-label="Target Hours">{entry.targetHours}</td>
+                      <td data-label="OT Hours">{entry.overtimeHours}</td>
+                      <td data-label="OT Amount (LKR)">
                         <input
                           type="number"
                           min="0"
@@ -399,19 +399,19 @@ function Payroll() {
               <tbody>
                 {lines.map((line) => (
                   <tr key={line._id}>
-                    <td>{line.staffSnapshot?.name}</td>
-                    <td>{line.salaryType}</td>
-                    <td>{line.calendarSummary?.workingDaysInMonth || 0}</td>
-                    <td>{line.attendanceSummary?.presentDays || 0}</td>
-                    <td>{line.attendanceSummary?.absentDays || 0}</td>
-                    <td>{line.deductions?.lopDays || 0}</td>
-                    <td>{formatMoney(line.payComponents?.otAmount)}</td>
-                    <td>{formatMoney(line.advanceDeduction?.advanceDeductionTotal)}</td>
-                    <td>{formatMoney(line.payComponents?.grossPay)}</td>
-                    <td>{formatMoney(line.deductions?.totalDeductions)}</td>
-                    <td>{formatMoney(line.netPay)}</td>
-                    <td>{line.paymentStatus}</td>
-                    <td>
+                    <td data-label="Employee">{line.staffSnapshot?.name}</td>
+                    <td data-label="Salary Type">{line.salaryType}</td>
+                    <td data-label="Working Days">{line.calendarSummary?.workingDaysInMonth || 0}</td>
+                    <td data-label="Present">{line.attendanceSummary?.presentDays || 0}</td>
+                    <td data-label="Absent">{line.attendanceSummary?.absentDays || 0}</td>
+                    <td data-label="LOP Days">{line.deductions?.lopDays || 0}</td>
+                    <td data-label="OT Amount">{formatMoney(line.payComponents?.otAmount)}</td>
+                    <td data-label="Advance Deduction">{formatMoney(line.advanceDeduction?.advanceDeductionTotal)}</td>
+                    <td data-label="Gross">{formatMoney(line.payComponents?.grossPay)}</td>
+                    <td data-label="Deductions">{formatMoney(line.deductions?.totalDeductions)}</td>
+                    <td data-label="Net Pay">{formatMoney(line.netPay)}</td>
+                    <td data-label="Status">{line.paymentStatus}</td>
+                    <td data-label="Action">
                       <div className="payroll-actions__buttons">
                         <button
                           type="button"

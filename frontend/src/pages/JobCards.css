@@ -933,7 +933,7 @@
   border-color: transparent;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .job-cards-header {
     flex-direction: column;
     align-items: flex-start;
@@ -1001,7 +1001,23 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
+  .job-cards-status-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .job-card-modal__overlay {
+    padding: 8px;
+    align-items: flex-end;
+  }
+
+  .job-card-modal {
+    border-radius: 16px 16px 0 0;
+    padding: 16px;
+    max-height: 94vh;
+    width: 100%;
+  }
+
   .job-card-task-table__head {
     display: none;
   }
@@ -1009,6 +1025,15 @@
   .job-card-task-table__row {
     grid-template-columns: 1fr;
     gap: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    background: #f8fafc;
+  }
+
+  .job-card-task-table__row--custom {
+    grid-template-columns: 1fr;
   }
 
   .job-card-task-table__row input[type="number"] {
@@ -1032,11 +1057,5 @@
   .materials-field--price,
   .materials-add .job-card-modal__add {
     grid-column: span 1;
-  }
-}
-
-@media (max-width: 640px) {
-  .job-cards-status-summary {
-    grid-template-columns: 1fr;
   }
 }

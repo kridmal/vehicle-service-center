@@ -243,8 +243,76 @@
   color: #1f2937;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .payroll-card {
     padding: 16px;
+  }
+
+  .payroll-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .payroll-card {
+    padding: 14px;
+  }
+
+  .payroll-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .payroll-table-wrap {
+    overflow-x: visible;
+  }
+
+  .payroll-table {
+    min-width: 0;
+    display: block;
+  }
+
+  .payroll-table thead {
+    display: none;
+  }
+
+  .payroll-table tbody {
+    display: block;
+  }
+
+  .payroll-table tr {
+    display: block;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    padding: 8px;
+    background: #ffffff;
+  }
+
+  .payroll-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 4px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 13px;
+  }
+
+  .payroll-table td:last-child {
+    border-bottom: none;
+  }
+
+  .payroll-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #475569;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    min-width: 90px;
   }
 }

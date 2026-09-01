@@ -1,3 +1,6 @@
+/* Breakpoint scale: 480px mobile | 768px tablet | 1024px tablet-large | 1025px+ desktop */
+@import "./styles/breakpoints.css";
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -46,4 +49,33 @@ button:hover {
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
+}
+
+/* Touch target sizing — ensure all interactive elements hit 44px minimum on touch screens */
+@media (max-width: 1024px) {
+  button,
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"],
+  select,
+  a.job-cards-action,
+  a.job-cards-cta,
+  a.invoice-action,
+  a.invoice-list__cta,
+  a.purchases-button {
+    min-height: 44px;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-width: 20px;
+    min-height: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* Prevent horizontal overflow at the root level */
+html, body {
+  overflow-x: hidden;
 }

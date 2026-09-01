@@ -279,7 +279,7 @@
   color: #15803d;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .purchases-grid {
     grid-template-columns: 1fr;
   }
@@ -291,6 +291,17 @@
   .purchases-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .purchases-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .purchases-card {
+    padding: 12px;
   }
 }
 

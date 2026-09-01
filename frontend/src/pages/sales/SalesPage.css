@@ -343,12 +343,14 @@
   border-color: #bfdbfe;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .sales-panel-head {
     flex-direction: column;
     align-items: stretch;
   }
+}
 
+@media (max-width: 480px) {
   .sales-form-grid {
     grid-template-columns: 1fr;
   }
@@ -359,5 +361,9 @@
 
   .sales-action-row {
     grid-template-columns: 1fr;
+  }
+
+  .sales-workspace {
+    padding: 10px;
   }
 }

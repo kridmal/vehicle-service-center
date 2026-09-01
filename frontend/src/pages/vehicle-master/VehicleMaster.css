@@ -148,3 +148,90 @@
   background: #fee2e2;
   color: #b91c1c;
 }
+
+@media (max-width: 768px) {
+  .vehicle-master-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vehicle-master-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .vehicle-master-actions button {
+    width: 100%;
+  }
+
+  .vehicle-master-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .vehicle-master-table table {
+    min-width: 480px;
+  }
+}
+
+@media (max-width: 480px) {
+  .vehicle-master-card {
+    padding: 14px;
+  }
+
+  .vehicle-master-table table {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .vehicle-master-table table,
+  .vehicle-master-table thead,
+  .vehicle-master-table tbody,
+  .vehicle-master-table th,
+  .vehicle-master-table td,
+  .vehicle-master-table tr {
+    display: block;
+  }
+
+  .vehicle-master-table thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+
+  .vehicle-master-table tr {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    padding: 4px 0;
+  }
+
+  .vehicle-master-table td {
+    border: none;
+    padding: 7px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 13px;
+  }
+
+  .vehicle-master-table td:last-child {
+    border-bottom: none;
+  }
+
+  .vehicle-master-table td::before {
+    content: attr(data-label);
+    font-weight: 700;
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .vehicle-master-actions-cell {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}

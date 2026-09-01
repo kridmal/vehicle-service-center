@@ -358,7 +358,7 @@
   color: #667085;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 768px) {
   .invoice-header {
     flex-direction: column;
     align-items: flex-start;
@@ -373,6 +373,21 @@
   .invoice-split,
   .invoice-controls {
     grid-template-columns: 1fr;
+  }
+
+  .invoice-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .invoice-shell {
+    padding: 16px;
+  }
+
+  .invoice-view {
+    padding: 16px 12px 40px;
   }
 }
 

@@ -1,0 +1,95 @@
+/*
+ * Shared breakpoint scale — Senavi Auto Care
+ *
+ * Mobile  : max-width: 480px   (phones ≤ 480px)
+ * Tablet  : max-width: 768px   (tablets 481px–768px; also catches 769px–1024px where noted)
+ * Desktop : min-width: 1025px  (default styles — no media query needed)
+ *
+ * Usage:
+ *   @media (max-width: 480px)  { ... }  ← mobile
+ *   @media (max-width: 768px)  { ... }  ← tablet + mobile
+ *   @media (max-width: 1024px) { ... }  ← tablet-large + below (sidebar collapse point)
+ *
+ * For tablet-only (not mobile) rules:
+ *   @media (min-width: 481px) and (max-width: 1024px) { ... }
+ */
+
+/*
+ * Global responsive utilities — imported by index.css
+ */
+
+/* Stacked-card table: used on all wide data tables at mobile width */
+.resp-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .resp-table-wrap {
+    border-radius: 10px;
+  }
+}
+
+/*
+ * Stacked-card pattern (mobile ≤480px)
+ * Apply .resp-table--stack to any <table> whose <td> elements carry data-label attributes.
+ * The thead is hidden; each td renders as a label-value row.
+ */
+@media (max-width: 480px) {
+  .resp-table--stack,
+  .resp-table--stack thead,
+  .resp-table--stack tbody,
+  .resp-table--stack th,
+  .resp-table--stack td,
+  .resp-table--stack tr {
+    display: block;
+  }
+
+  .resp-table--stack thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+
+  .resp-table--stack tr {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    background: #ffffff;
+    padding: 4px 0;
+  }
+
+  .resp-table--stack td {
+    border: none !important;
+    padding: 7px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 13px;
+    border-bottom: 1px solid #f1f5f9 !important;
+  }
+
+  .resp-table--stack td:last-child {
+    border-bottom: none !important;
+  }
+
+  .resp-table--stack td::before {
+    content: attr(data-label);
+    font-weight: 700;
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+
+  /* Action cells — stack the buttons below the label */
+  .resp-table--stack td[data-label="Action"],
+  .resp-table--stack td[data-label="Actions"] {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}

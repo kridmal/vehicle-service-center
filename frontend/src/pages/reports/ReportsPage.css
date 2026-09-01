@@ -320,7 +320,7 @@
   color: #64748b;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .reports-hero {
     flex-direction: column;
   }
@@ -336,5 +336,15 @@
   .reports-bar {
     grid-template-columns: 1fr;
     align-items: start;
+  }
+}
+
+@media (max-width: 480px) {
+  .reports-page {
+    gap: 20px;
+  }
+
+  .reports-hero {
+    padding: 16px;
   }
 }

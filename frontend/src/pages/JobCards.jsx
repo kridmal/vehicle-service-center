@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
+import StaffSearchInput from "../components/StaffSearchInput.jsx";
 import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import api from "../services/api.js";
 import {
@@ -1495,7 +1496,6 @@ function JobCards() {
                               task,
                               taskIndex
                             );
-                            const datalistId = `job-edit-task-staff-${rowKey}`;
                             const options = taskStaffSearchResults[rowKey] || [];
                             const staffValue =
                               taskStaffSearchTerms[rowKey] ?? getAssignedStaffLabel(task);
@@ -1545,29 +1545,31 @@ function JobCards() {
                                     )
                                   }
                                 />
-                                <input
-                                  type="search"
-                                  list={datalistId}
-                                  placeholder="8071302 - Staff Name"
+                                <StaffSearchInput
                                   value={staffValue}
+                                  options={options}
                                   disabled={isReadOnly}
-                                  onChange={(event) =>
+                                  placeholder="8071302 - Staff Name"
+                                  onChange={(value) =>
                                     queueTaskStaffSearch(
                                       serviceIndex,
                                       taskIndex,
                                       rowKey,
-                                      event.target.value
+                                      value
                                     )
                                   }
+                                  onSelect={(staff) => {
+                                    setTaskStaffSearchTerms((prev) => ({
+                                      ...prev,
+                                      [rowKey]: formatStaffOptionLabel(staff),
+                                    }));
+                                    updateTaskAssignedStaff(serviceIndex, taskIndex, staff);
+                                    setTaskStaffSearchResults((prev) => ({
+                                      ...prev,
+                                      [rowKey]: [],
+                                    }));
+                                  }}
                                 />
-                                <datalist id={datalistId}>
-                                  {options.map((staff) => (
-                                    <option
-                                      key={staff._id}
-                                      value={formatStaffOptionLabel(staff)}
-                                    />
-                                  ))}
-                                </datalist>
                                 <label className="job-card-task-table__billable">
                                   <input
                                     type="checkbox"
@@ -1617,7 +1619,6 @@ function JobCards() {
                     </div>
                     {customTasks.map((task, index) => {
                       const rowKey = `custom-${index}`;
-                      const datalistId = `custom-task-staff-${index}`;
                       const options = customTaskStaffSearchResults[rowKey] || [];
                       const staffValue =
                         customTaskStaffSearchTerms[rowKey] ??
@@ -1647,19 +1648,37 @@ function JobCards() {
                             disabled={isReadOnly}
                             onChange={(e) => updateCustomTaskField(index, "laborCharge", e.target.value)}
                           />
-                          <input
-                            type="search"
-                            list={datalistId}
-                            placeholder="8071302 - Staff Name"
+                          <StaffSearchInput
                             value={staffValue}
+                            options={options}
                             disabled={isReadOnly}
-                            onChange={(e) => queueCustomTaskStaffSearch(index, e.target.value)}
+                            placeholder="8071302 - Staff Name"
+                            onChange={(value) => queueCustomTaskStaffSearch(index, value)}
+                            onSelect={(staff) => {
+                              setCustomTaskStaffSearchTerms((prev) => ({
+                                ...prev,
+                                [rowKey]: formatStaffOptionLabel(staff),
+                              }));
+                              setCustomTasks((prev) =>
+                                prev.map((t, i) =>
+                                  i !== index
+                                    ? t
+                                    : {
+                                        ...t,
+                                        assignedStaffId: staff._id,
+                                        assignedStaffSnapshot: {
+                                          employeeNo: staff.employeeNo || "",
+                                          name: staff.name || "",
+                                        },
+                                      }
+                                )
+                              );
+                              setCustomTaskStaffSearchResults((prev) => ({
+                                ...prev,
+                                [rowKey]: [],
+                              }));
+                            }}
                           />
-                          <datalist id={datalistId}>
-                            {options.map((staff) => (
-                              <option key={staff._id} value={formatStaffOptionLabel(staff)} />
-                            ))}
-                          </datalist>
                           <label className="job-card-task-table__billable">
                             <input
                               type="checkbox"

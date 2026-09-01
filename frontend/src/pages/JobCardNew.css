@@ -831,7 +831,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
   .job-card-new {
     padding: 16px;
     border-radius: 18px;

@@ -240,7 +240,7 @@
   color: #374151;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .job-card-print-controls {
     flex-direction: column;
   }
@@ -255,6 +255,12 @@
 
   .job-card-print-footer {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .job-card-print {
+    padding: 14px;
   }
 }
 

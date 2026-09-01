@@ -278,15 +278,15 @@ function Advances() {
               <tbody>
                 {rows.map((row) => (
                   <tr key={row._id}>
-                    <td>{formatDateTime(row.requestDate)}</td>
-                    <td>{resolveStaffLabel(row)}</td>
-                    <td>{formatMoney(row.amount)}</td>
-                    <td>{formatMoney(row.outstandingAmount)}</td>
-                    <td>{row.status}</td>
-                    <td>{row.reason || "-"}</td>
-                    <td>{formatDateTime(row.approvedAt)}</td>
-                    <td>{formatDateTime(row.paidOutAt)}</td>
-                    <td>
+                    <td data-label="Request Date">{formatDateTime(row.requestDate)}</td>
+                    <td data-label="Staff">{resolveStaffLabel(row)}</td>
+                    <td data-label="Amount">{formatMoney(row.amount)}</td>
+                    <td data-label="Outstanding">{formatMoney(row.outstandingAmount)}</td>
+                    <td data-label="Status">{row.status}</td>
+                    <td data-label="Reason">{row.reason || "-"}</td>
+                    <td data-label="Approved">{formatDateTime(row.approvedAt)}</td>
+                    <td data-label="Paid Out">{formatDateTime(row.paidOutAt)}</td>
+                    <td data-label="Actions">
                       <div className="advances-row-actions">
                         {row.status === "PENDING" ? (
                           <>

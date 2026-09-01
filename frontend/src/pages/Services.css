@@ -242,7 +242,7 @@
   color: #b91c1c;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .services-grid {
     grid-template-columns: 1fr;
   }
@@ -254,5 +254,21 @@
   .services-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .services-card {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .services-card {
+    padding: 14px;
+  }
+
+  .services-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
   }
 }

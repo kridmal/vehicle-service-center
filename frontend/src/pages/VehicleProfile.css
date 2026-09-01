@@ -276,7 +276,7 @@
   font-size: 13px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .vehicle-profile__header {
     flex-direction: column;
   }
@@ -287,7 +287,18 @@
     grid-template-columns: 1fr;
   }
 
-  .vehicle-profile__table table {
-    min-width: 560px;
+  .vehicle-profile__table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .vehicle-profile {
+    padding: 14px;
+  }
+
+  .vehicle-profile__section {
+    padding: 14px;
   }
 }

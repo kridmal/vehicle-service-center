@@ -181,11 +181,11 @@ function WorkLogs() {
               <tbody>
                 {groupedDaily.map((row) => (
                   <tr key={row.key}>
-                    <td>{row.date}</td>
-                    <td>{row.employeeNo}</td>
-                    <td>{row.staffName}</td>
-                    <td>{row.taskCount}</td>
-                    <td>{formatHours(row.hours)}</td>
+                    <td data-label="Date">{row.date}</td>
+                    <td data-label="Employee No">{row.employeeNo}</td>
+                    <td data-label="Staff">{row.staffName}</td>
+                    <td data-label="Tasks">{row.taskCount}</td>
+                    <td data-label="Labor Hours">{formatHours(row.hours)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -219,14 +219,14 @@ function WorkLogs() {
               <tbody>
                 {rows.map((row) => (
                   <tr key={row._id}>
-                    <td>{row.date}</td>
-                    <td>{row.employeeNo || "-"}</td>
-                    <td>{row.staffName || "-"}</td>
-                    <td>{row.jobCardNo || "-"}</td>
-                    <td>{row.serviceTypeName || "-"}</td>
-                    <td>{row.taskName || "-"}</td>
-                    <td>{formatHours(row.laborHours)}</td>
-                    <td>{row.billable ? "Yes" : "No"}</td>
+                    <td data-label="Date">{row.date}</td>
+                    <td data-label="Employee No">{row.employeeNo || "-"}</td>
+                    <td data-label="Staff">{row.staffName || "-"}</td>
+                    <td data-label="Job Card">{row.jobCardNo || "-"}</td>
+                    <td data-label="Service">{row.serviceTypeName || "-"}</td>
+                    <td data-label="Task">{row.taskName || "-"}</td>
+                    <td data-label="Hours">{formatHours(row.laborHours)}</td>
+                    <td data-label="Billable">{row.billable ? "Yes" : "No"}</td>
                   </tr>
                 ))}
               </tbody>

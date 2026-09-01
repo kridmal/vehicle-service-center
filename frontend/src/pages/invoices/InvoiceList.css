@@ -236,16 +236,21 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 480px) {
   .invoice-list__stats {
     grid-template-columns: 1fr;
   }
 
   .invoice-table-card {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .invoice-actions {
     justify-content: flex-start;
+  }
+
+  .invoice-list {
+    padding: 14px;
   }
 }
