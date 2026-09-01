@@ -1768,7 +1768,7 @@ function JobCards() {
                   <button
                     type="button"
                     onClick={handleGenerateInvoice}
-                    disabled={invoiceLoading || isBillingLocked}
+                    disabled={invoiceLoading}
                   >
                     Generate Invoice
                   </button>

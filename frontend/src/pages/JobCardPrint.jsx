@@ -5,7 +5,7 @@ import api from "../services/api.js";
 import "./JobCardPrint.css";
 
 const COMPANY_INFO = {
-  name: "Kaluarachchi Service Center",
+  name: "Senavi Auto Care",
   branch: "Main Workshop",
   address: "123 Service Lane, Colombo",
   phone: "+94 11 234 5678",

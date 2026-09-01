@@ -41,7 +41,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.json({ message: "Kaluarachchi SC API running" });
+  res.json({ message: "Senavi Auto Care API running" });
 });
 
 app.use("/api/auth", authRoutes);

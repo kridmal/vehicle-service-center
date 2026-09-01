@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "pwa-192x192.png", "pwa-512x512.png"],
       manifest: {
-        name: "Kaluarachchi SC",
-        short_name: "Kaluarachchi SC",
-        description: "Kaluarachchi Service Center Management System",
+        name: "Senavi Auto Care",
+        short_name: "Senavi Auto Care",
+        description: "Senavi Auto Care Management System",
         start_url: "/",
         display: "standalone",
         background_color: "#ffffff",

@@ -1,7 +1,7 @@
 {
-  "name": "kaluarachchi-sc-backend",
+  "name": "senavi-auto-care-backend",
   "version": "1.0.0",
-  "description": "Backend API for Kaluarachchi Service Center",
+  "description": "Backend API for Senavi Auto Care",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -15,7 +15,7 @@
     "express",
     "mongodb"
   ],
-  "author": "Kaluarachchi Service Center",
+  "author": "Senavi Auto Care",
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^2.4.3",
