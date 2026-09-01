@@ -76,6 +76,21 @@ const appliedRewardSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const customTaskSchema = new mongoose.Schema(
+  {
+    taskName: { type: String, required: true, trim: true },
+    laborHours: { type: Number, min: 0, default: 0 },
+    laborCharge: { type: Number, min: 0, default: 0 },
+    billable: { type: Boolean, default: true },
+    assignedStaffId: { type: mongoose.Schema.Types.ObjectId, ref: "Worker", default: null },
+    assignedStaffSnapshot: {
+      employeeNo: { type: String, trim: true, default: "" },
+      name: { type: String, trim: true, default: "" },
+    },
+  },
+  { _id: false }
+);
+
 const jobCardSchema = new mongoose.Schema(
   {
     jobCardNo: { type: String, required: true, unique: true, trim: true },
@@ -84,6 +99,7 @@ const jobCardSchema = new mongoose.Schema(
     vehicleId: { type: String, required: true, trim: true },
     serviceTypeIds: { type: [String], default: [] },
     services: { type: [jobServiceSchema], default: [] },
+    customTasks: { type: [customTaskSchema], default: [] },
     status: {
       type: String,
       enum: ["OPEN", "IN_PROGRESS", "PENDING", "COMPLETED", "CLOSED"],

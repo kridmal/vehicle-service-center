@@ -146,7 +146,9 @@ export const payDealerBalance = async (req, res, next) => {
     const pendingInvoices = await PurchaseInvoice.find({
       dealerId: dealer._id,
       status: { $in: ["UNPAID", "PARTIALLY_PAID"] },
-    }).sort({ purchaseDate: 1, createdAt: 1 });
+    })
+      .sort({ purchaseDate: 1, createdAt: 1 })
+      .lean();
 
     if (pendingInvoices.length === 0) {
       return res.status(400).json({ message: "No pending invoices for this dealer" });

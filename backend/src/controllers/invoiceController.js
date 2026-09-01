@@ -227,6 +227,27 @@ const buildInvoiceLaborItems = (jobCardServices = []) =>
     }
   );
 
+const buildCustomTaskLaborItems = (customTasks = [], startOrder = 0) =>
+  (Array.isArray(customTasks) ? customTasks : [])
+    .filter((t) => t && t.billable !== false)
+    .map((task, index) => {
+      const taskName = String(task?.taskName || "").trim();
+      if (!taskName) return null;
+      return {
+        taskId: null,
+        taskName,
+        description: taskName,
+        serviceType: "",
+        serviceName: "Custom Task",
+        laborHours: roundCurrency(toNonNegativeNumber(task?.laborHours)),
+        amount: roundCurrency(toNonNegativeNumber(task?.laborCharge)),
+        order: startOrder + index,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.order - b.order)
+    .map(({ order, ...item }) => item);
+
 const resolveInvoiceLaborChargesOriginal = ({
   jobCard,
   jobCardServices = [],
@@ -353,7 +374,10 @@ const syncDraftInvoiceFromJobCard = async (invoice) => {
   }
 
   const jobCardServices = normalizeInvoiceServiceSnapshot(jobCard.services || []);
-  const laborItems = buildInvoiceLaborItems(jobCardServices);
+  const laborItems = [
+    ...buildInvoiceLaborItems(jobCardServices),
+    ...buildCustomTaskLaborItems(jobCard.customTasks || [], jobCardServices.length * 1000),
+  ];
   const pricing = buildInvoicePricingSnapshot({
     jobCard,
     partsUsed,
@@ -546,7 +570,10 @@ export const createInvoiceFromJobCard = async (req, res, next) => {
     }
 
     const jobCardServices = normalizeInvoiceServiceSnapshot(jobCard.services || []);
-    const laborItems = buildInvoiceLaborItems(jobCardServices);
+    const laborItems = [
+      ...buildInvoiceLaborItems(jobCardServices),
+      ...buildCustomTaskLaborItems(jobCard.customTasks || [], jobCardServices.length * 1000),
+    ];
 
     const pricing = buildInvoicePricingSnapshot({
       jobCard,

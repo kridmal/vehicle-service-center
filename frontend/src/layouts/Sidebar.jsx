@@ -114,6 +114,7 @@ const buildSidebarSections = ({ can, isOwner }) => [
     label: "Operations",
     children: [
       { type: "link", key: "job_cards", label: "Job Cards", to: "/job-cards" },
+      { type: "link", key: "invoices", label: "Invoices", to: "/invoices" },
       {
         type: "link",
         key: "sales",

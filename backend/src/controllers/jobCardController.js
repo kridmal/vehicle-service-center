@@ -173,6 +173,29 @@ const normalizeServices = (services = []) =>
     })
     .filter(Boolean);
 
+const normalizeCustomTasks = (customTasks = []) =>
+  (Array.isArray(customTasks) ? customTasks : [])
+    .map((t) => {
+      if (!t || typeof t !== "object") return null;
+      const taskName = String(t.taskName || "").trim();
+      if (!taskName) return null;
+      const assignedStaffId = isValidId(t.assignedStaffId)
+        ? new mongoose.Types.ObjectId(String(t.assignedStaffId))
+        : null;
+      return {
+        taskName,
+        laborHours: roundCurrency(toNonNegativeNumber(t.laborHours)),
+        laborCharge: roundCurrency(toNonNegativeNumber(t.laborCharge)),
+        billable: t.billable !== undefined ? Boolean(t.billable) : true,
+        assignedStaffId,
+        assignedStaffSnapshot: {
+          employeeNo: String(t.assignedStaffSnapshot?.employeeNo || "").trim(),
+          name: String(t.assignedStaffSnapshot?.name || "").trim(),
+        },
+      };
+    })
+    .filter(Boolean);
+
 const collectServiceTypeIds = (services = []) =>
   [
     ...new Set(
@@ -455,24 +478,32 @@ const nextJobCardNumber = async () => {
   return `JC-${String(counter.seq).padStart(5, "0")}`;
 };
 
+const customTasksLaborSubtotal = (customTasks = []) =>
+  (Array.isArray(customTasks) ? customTasks : []).reduce((sum, t) => {
+    if (!t || !t.billable) return sum;
+    return sum + toNonNegativeNumber(t.laborCharge);
+  }, 0);
+
 const resolveLaborChargesOriginal = ({
   services = [],
+  customTasks = [],
   fallbackLaborCharges = 0,
 }) => {
   const hasLaborMetadataInIncoming = hasTaskLaborMetadata(services);
   const hasPositiveLaborInIncoming = hasPositiveTaskLaborCharge(services);
+  const customTotal = customTasksLaborSubtotal(customTasks);
 
   const shouldUseTaskLabor =
     hasLaborMetadataInIncoming &&
     (hasPositiveLaborInIncoming || toNonNegativeNumber(fallbackLaborCharges) === 0);
 
   if (!shouldUseTaskLabor) {
-    return roundCurrency(toNonNegativeNumber(fallbackLaborCharges));
+    return roundCurrency(toNonNegativeNumber(fallbackLaborCharges) + customTotal);
   }
 
   const flattenedTasks = flattenServiceTasks(services);
   const totals = computeLaborTotals(flattenedTasks);
-  return roundCurrency(totals.laborSubtotalOriginal);
+  return roundCurrency(totals.laborSubtotalOriginal + customTotal);
 };
 
 const normalizePartsUsed = (partsUsed = []) =>
@@ -975,6 +1006,10 @@ export const updateJobCard = async (req, res, next) => {
         .json({ message: "At least one service must be added" });
     }
 
+    const incomingCustomTasks = req.body.customTasks !== undefined
+      ? normalizeCustomTasks(req.body.customTasks)
+      : null;
+
     if (nextStatus === "COMPLETED") {
       const servicesToCheck = incomingServices ?? jobCard.services ?? [];
       const hasIncompleteRequired = servicesToCheck.some((service) =>
@@ -1080,12 +1115,14 @@ export const updateJobCard = async (req, res, next) => {
         .filter(Boolean)
         .join(", ");
     }
+    const customTasksForPricing = incomingCustomTasks ?? (jobCard.customTasks || []);
     const fallbackLaborCharges =
       req.body.laborCharges !== undefined
         ? toNumber(req.body.laborCharges)
         : toNumber(jobCard.laborChargesOriginal ?? jobCard.laborCharges);
     const laborChargesOriginal = resolveLaborChargesOriginal({
       services: servicesForPricing,
+      customTasks: customTasksForPricing,
       fallbackLaborCharges,
     });
 
@@ -1136,6 +1173,7 @@ export const updateJobCard = async (req, res, next) => {
       workNotes: req.body.workNotes ?? jobCard.workNotes,
       serviceTypeIds: collectServiceTypeIds(servicesForPricing),
       services: servicesForPricing,
+      customTasks: customTasksForPricing,
       appliedRewards: persistedAppliedRewards,
       completedAt,
     };

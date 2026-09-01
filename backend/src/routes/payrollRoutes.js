@@ -5,6 +5,7 @@ import {
   generatePayroll,
   listPayroll,
   markPayrollPaid,
+  previewOT,
   unlockPayroll,
   updatePayrollLineItems,
 } from "../controllers/payrollController.js";
@@ -12,6 +13,7 @@ import {
 const router = express.Router();
 
 router.get("/", requireAuth, requirePayrollAccess, listPayroll);
+router.get("/ot-preview", requireAuth, requirePayrollAccess, previewOT);
 router.post("/generate", requireAuth, requirePayrollAccess, generatePayroll);
 router.put("/:id/line-items", requireAuth, requirePayrollAccess, updatePayrollLineItems);
 router.put("/:id/approve", requireAuth, requirePayrollAccess, approvePayroll);

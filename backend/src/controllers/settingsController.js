@@ -9,7 +9,6 @@ const DEFAULT_SETTINGS = {
   },
   payrollSettings: {
     standardDailyHours: 8,
-    otRatePerHour: 0,
   },
   salaryComponents: {
     allowances: [

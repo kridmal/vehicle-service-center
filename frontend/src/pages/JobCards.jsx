@@ -25,8 +25,8 @@ function JobCards() {
   const serviceTypeEditableStatuses = ["OPEN", "IN_PROGRESS", "PENDING"];
   const [allJobs, setAllJobs] = useState([]);
   const [filteredJobs, setFilteredJobs] = useState([]);
-  const [customers] = useLocalStorageState("ksc_customers", []);
-  const [vehicles] = useLocalStorageState("ksc_vehicles", []);
+  const [customers, setCustomers] = useLocalStorageState("ksc_customers", []);
+  const [vehicles, setVehicles] = useLocalStorageState("ksc_vehicles", []);
   const [services, setServices] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeStatus, setActiveStatus] = useState("");
@@ -57,6 +57,9 @@ function JobCards() {
   const [legacyLaborFallback, setLegacyLaborFallback] = useState(0);
   const [activeJobHasTaskLaborMeta, setActiveJobHasTaskLaborMeta] = useState(false);
   const [taskLaborTouched, setTaskLaborTouched] = useState(false);
+  const [customTasks, setCustomTasks] = useState([]);
+  const [customTaskStaffSearchTerms, setCustomTaskStaffSearchTerms] = useState({});
+  const [customTaskStaffSearchResults, setCustomTaskStaffSearchResults] = useState({});
   const navigate = useNavigate();
 
   const buildRewardSelectionKey = (reward) =>
@@ -84,8 +87,49 @@ function JobCards() {
   };
 
   useEffect(() => {
-    setAllJobs(getJobCards());
-  }, []);
+    const loadJobCards = async () => {
+      try {
+        const { data } = await api.get("/job-cards");
+        const mapped = (Array.isArray(data) ? data : []).map((doc) => ({
+          id: doc.jobCardNo,
+          mongoId: String(doc._id),
+          ownerId: doc.ownerId || doc.customerId,
+          customerId: doc.customerId,
+          vehicleId: doc.vehicleId,
+          status: doc.status || "OPEN",
+          paymentStatus: doc.paymentStatus || "UNPAID",
+          services: doc.services || [],
+          serviceTypeIds: doc.serviceTypeIds || [],
+          partsUsed: doc.partsUsed || [],
+          laborCharges: doc.laborChargesOriginal ?? doc.laborCharges ?? 0,
+          laborChargesOriginal: doc.laborChargesOriginal ?? doc.laborCharges ?? 0,
+          laborChargesNet: doc.laborChargesNet ?? 0,
+          loyaltyLaborDiscount: doc.loyaltyLaborDiscount ?? 0,
+          subtotalPartsOriginal: doc.subtotalPartsOriginal ?? 0,
+          partsDiscountTotal: doc.partsDiscountTotal ?? 0,
+          subtotalParts: doc.subtotalParts ?? 0,
+          grandTotal: doc.grandTotal ?? 0,
+          workNotes: doc.workNotes || "",
+          customTasks: Array.isArray(doc.customTasks) ? doc.customTasks : [],
+          appliedRewards: Array.isArray(doc.appliedRewards)
+            ? doc.appliedRewards.slice(0, 1)
+            : [],
+          createdAt: doc.createdAt,
+          assignedWorker: doc.assignedWorker || "",
+          assignedWorkers: doc.assignedWorkers || [],
+        }));
+        setAllJobs(mapped);
+        saveJobCards(mapped);
+      } catch (error) {
+        if (error.response?.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setAllJobs(getJobCards());
+      }
+    };
+    loadJobCards();
+  }, [navigate]);
 
   useEffect(() => {
     return () => {
@@ -108,6 +152,68 @@ function JobCards() {
     };
     loadServices();
   }, [navigate]);
+
+  useEffect(() => {
+    const syncCustomers = async () => {
+      try {
+        const { data } = await api.get("/customers");
+        if (!Array.isArray(data)) return;
+        setCustomers((prev) => {
+          const result = [];
+          const seenMongoIds = new Set();
+          for (const c of data) {
+            const mongoId = String(c._id);
+            seenMongoIds.add(mongoId);
+            const existing = prev.find((e) => e.mongoId === mongoId);
+            if (existing) {
+              result.push({ ...existing, name: c.name, phone: c.phone || "", email: c.email || "" });
+            } else {
+              result.push({ _id: c._id, id: mongoId, mongoId, name: c.name, phone: c.phone || "", email: c.email || "", notes: c.notes || "" });
+            }
+          }
+          for (const e of prev) {
+            if (!e.mongoId && !seenMongoIds.has(e.id)) result.push(e);
+          }
+          return result;
+        });
+      } catch {
+        // silently keep existing ksc_customers data
+      }
+    };
+    syncCustomers();
+  }, []);
+
+  useEffect(() => {
+    const syncVehicles = async () => {
+      try {
+        const { data } = await api.get("/vehicles");
+        if (!Array.isArray(data)) return;
+        setVehicles((prev) => {
+          const result = [];
+          const matchedLocalIds = new Set();
+          for (const v of data) {
+            const mongoId = String(v._id);
+            const local = prev.find(
+              (e) => e.mongoId === mongoId || e.vehicleNumber?.toLowerCase() === v.vehicleNumber?.toLowerCase()
+            );
+            if (local) {
+              matchedLocalIds.add(local.id);
+              result.push({ ...local, mongoId, vehicleNumber: v.vehicleNumber });
+            } else {
+              result.push({ id: mongoId, mongoId, customerId: v.customerId || v.currentOwnerId, currentOwnerId: v.currentOwnerId, vehicleNumber: v.vehicleNumber, brandId: v.brandId, brandName: v.brandName, modelId: v.modelId, modelName: v.modelName, year: v.year || "" });
+            }
+          }
+          for (const e of prev) {
+            if (!matchedLocalIds.has(e.id) && !e.mongoId) result.push(e);
+          }
+          return result;
+        });
+      } catch {
+        // silently keep existing ksc_vehicles data
+      }
+    };
+    syncVehicles();
+  }, []);
 
   const lookup = useMemo(() => {
     const customerMap = new Map(customers.map((c) => [c.id, c]));
@@ -234,6 +340,9 @@ function JobCards() {
     setTaskLaborTouched(false);
     setLegacyLaborFallback(fallbackLabor);
     setJobServices(normalizeJobServices(job.services || []));
+    setCustomTasks(Array.isArray(job.customTasks) ? job.customTasks : []);
+    setCustomTaskStaffSearchTerms({});
+    setCustomTaskStaffSearchResults({});
     setAppliedRewards(
       Array.isArray(job.appliedRewards) && job.appliedRewards.length > 0
         ? [job.appliedRewards[0]]
@@ -313,6 +422,9 @@ function JobCards() {
     setIsAddingServiceType(false);
     setTaskStaffSearchTerms({});
     setTaskStaffSearchResults({});
+    setCustomTasks([]);
+    setCustomTaskStaffSearchTerms({});
+    setCustomTaskStaffSearchResults({});
   };
 
   const toggleTaskCompletion = (serviceIndex, taskIndex) => {
@@ -707,10 +819,14 @@ function JobCards() {
     [partPricingRows]
   );
 
-  const computedTaskLaborSubtotal = useMemo(
-    () => computeLaborSubtotalFromServices(jobServices),
-    [jobServices]
-  );
+  const computedTaskLaborSubtotal = useMemo(() => {
+    const serviceLabor = computeLaborSubtotalFromServices(jobServices);
+    const customLabor = customTasks.reduce((sum, t) => {
+      if (!t.billable) return sum;
+      return sum + toNonNegativeNumber(t.laborCharge);
+    }, 0);
+    return roundTaskCurrency(serviceLabor + customLabor);
+  }, [jobServices, customTasks]);
 
   const laborChargesOriginalForPricing = useMemo(() => {
     const shouldUseTaskLabor =
@@ -809,6 +925,82 @@ function JobCards() {
     setAppliedRewards([]);
   };
 
+  const addCustomTask = () => {
+    setCustomTasks((prev) => [
+      ...prev,
+      { taskName: "", laborHours: 0, laborCharge: 0, billable: true, assignedStaffId: null, assignedStaffSnapshot: { employeeNo: "", name: "" } },
+    ]);
+  };
+
+  const removeCustomTask = (index) => {
+    setCustomTasks((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateCustomTaskField = (index, field, value) => {
+    setCustomTasks((prev) =>
+      prev.map((task, i) => {
+        if (i !== index) return task;
+        if (field === "laborHours" || field === "laborCharge") {
+          return { ...task, [field]: roundTaskCurrency(toNonNegativeNumber(value)) };
+        }
+        return { ...task, [field]: value };
+      })
+    );
+  };
+
+  const queueCustomTaskStaffSearch = (index, nextValue) => {
+    const rowKey = `custom-${index}`;
+    setCustomTaskStaffSearchTerms((prev) => ({ ...prev, [rowKey]: nextValue }));
+    const query = String(nextValue || "").trim();
+    const currentOptions = customTaskStaffSearchResults[rowKey] || [];
+    const matchedFromCurrent = currentOptions.find(
+      (staff) => formatStaffOptionLabel(staff).toLowerCase() === query.toLowerCase()
+    );
+    if (matchedFromCurrent) {
+      setCustomTasks((prev) =>
+        prev.map((task, i) =>
+          i !== index
+            ? task
+            : { ...task, assignedStaffId: matchedFromCurrent._id, assignedStaffSnapshot: { employeeNo: matchedFromCurrent.employeeNo || "", name: matchedFromCurrent.name || "" } }
+        )
+      );
+    } else if (!query) {
+      setCustomTasks((prev) =>
+        prev.map((task, i) =>
+          i !== index ? task : { ...task, assignedStaffId: null, assignedStaffSnapshot: { employeeNo: "", name: "" } }
+        )
+      );
+    }
+    if (taskStaffSearchTimersRef.current[rowKey]) {
+      clearTimeout(taskStaffSearchTimersRef.current[rowKey]);
+    }
+    if (!query) {
+      setCustomTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: [] }));
+      return;
+    }
+    taskStaffSearchTimersRef.current[rowKey] = setTimeout(async () => {
+      try {
+        const { data } = await api.get("/staff/search", { params: { q: query } });
+        const rows = Array.isArray(data) ? data : [];
+        setCustomTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: rows }));
+        const matched = rows.find(
+          (staff) => formatStaffOptionLabel(staff).toLowerCase() === query.toLowerCase()
+        );
+        if (matched) {
+          setCustomTasks((prev) =>
+            prev.map((task, i) =>
+              i !== index
+                ? task
+                : { ...task, assignedStaffId: matched._id, assignedStaffSnapshot: { employeeNo: matched.employeeNo || "", name: matched.name || "" } }
+            )
+          );
+        }
+      } catch {
+        setCustomTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: [] }));
+      }
+    }, 300);
+  };
+
   const handleSave = async () => {
     if (!activeJobCard) return;
     setIsSaving(true);
@@ -849,6 +1041,7 @@ function JobCards() {
         laborCharges: pricingPreview.laborChargesOriginal,
         workNotes,
         services: servicesPayload,
+        customTasks,
         appliedRewards: appliedRewards.slice(0, 1),
       };
       if (jobStatus === "COMPLETED") {
@@ -890,6 +1083,7 @@ function JobCards() {
         paymentStatus: savedJobCard?.paymentStatus ?? payload.paymentStatus,
         workNotes: savedJobCard?.workNotes ?? payload.workNotes,
         services: savedJobCard?.services ?? payload.services ?? activeJobCard.services,
+        customTasks: savedJobCard?.customTasks ?? payload.customTasks ?? [],
         appliedRewards:
           Array.isArray(savedJobCard?.appliedRewards) &&
           savedJobCard.appliedRewards.length > 0
@@ -1403,6 +1597,102 @@ function JobCards() {
                   ))}
                 </div>
               )}
+            </div>
+
+            <div className="job-card-modal__section">
+              <h3>Custom Tasks</h3>
+              <p className="job-card-modal__muted">
+                Manually add tasks not linked to any service type.
+              </p>
+              {customTasks.length > 0 ? (
+                <div className="job-card-modal__tasks">
+                  <div className="job-card-task-table">
+                    <div className="job-card-task-table__head job-card-task-table__head--custom">
+                      <span>Task Name</span>
+                      <span>Labor Hours</span>
+                      <span>Labor Charge (LKR)</span>
+                      <span>Assigned Staff</span>
+                      <span>Billable</span>
+                      <span></span>
+                    </div>
+                    {customTasks.map((task, index) => {
+                      const rowKey = `custom-${index}`;
+                      const datalistId = `custom-task-staff-${index}`;
+                      const options = customTaskStaffSearchResults[rowKey] || [];
+                      const staffValue =
+                        customTaskStaffSearchTerms[rowKey] ??
+                        getAssignedStaffLabel(task);
+                      return (
+                        <div key={index} className="job-card-task-table__row job-card-task-table__row--custom">
+                          <input
+                            type="text"
+                            placeholder="Task description"
+                            value={task.taskName}
+                            disabled={isReadOnly}
+                            onChange={(e) => updateCustomTaskField(index, "taskName", e.target.value)}
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.25"
+                            value={task.laborHours ?? 0}
+                            disabled={isReadOnly}
+                            onChange={(e) => updateCustomTaskField(index, "laborHours", e.target.value)}
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={task.laborCharge ?? 0}
+                            disabled={isReadOnly}
+                            onChange={(e) => updateCustomTaskField(index, "laborCharge", e.target.value)}
+                          />
+                          <input
+                            type="search"
+                            list={datalistId}
+                            placeholder="8071302 - Staff Name"
+                            value={staffValue}
+                            disabled={isReadOnly}
+                            onChange={(e) => queueCustomTaskStaffSearch(index, e.target.value)}
+                          />
+                          <datalist id={datalistId}>
+                            {options.map((staff) => (
+                              <option key={staff._id} value={formatStaffOptionLabel(staff)} />
+                            ))}
+                          </datalist>
+                          <label className="job-card-task-table__billable">
+                            <input
+                              type="checkbox"
+                              checked={task.billable !== false}
+                              disabled={isReadOnly}
+                              onChange={(e) => updateCustomTaskField(index, "billable", e.target.checked)}
+                            />
+                            <span>Yes</span>
+                          </label>
+                          {!isReadOnly ? (
+                            <button
+                              type="button"
+                              className="job-card-modal__service-remove"
+                              onClick={() => removeCustomTask(index)}
+                            >
+                              Remove
+                            </button>
+                          ) : <span />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <p className="job-card-modal__empty">No custom tasks added.</p>
+              )}
+              {!isReadOnly ? (
+                <div className="job-card-modal__actions">
+                  <button type="button" onClick={addCustomTask}>
+                    + Add Custom Task
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="job-card-modal__section">

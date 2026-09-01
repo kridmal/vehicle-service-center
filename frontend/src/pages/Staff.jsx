@@ -22,7 +22,6 @@ const EMPTY_FORM = {
   salaryType: "FIXED",
   basicSalary: "",
   perDayRate: "",
-  otRatePerHourOverride: "",
   commissionPercentage: "",
   notes: "",
   documents: [],
@@ -157,10 +156,6 @@ function Staff() {
         employeeId: String(form.employeeId || "").trim() || undefined,
         basicSalary: Number(form.basicSalary || 0),
         perDayRate: Number(form.perDayRate || 0),
-        otRatePerHourOverride:
-          form.otRatePerHourOverride === "" || form.otRatePerHourOverride === null
-            ? null
-            : Number(form.otRatePerHourOverride || 0),
         commissionPercentage: Number(form.commissionPercentage || 0),
       };
       if (editingId) {
@@ -200,7 +195,6 @@ function Staff() {
       salaryType: row.salaryType || "FIXED",
       basicSalary: row.basicSalary ?? "",
       perDayRate: row.perDayRate ?? "",
-      otRatePerHourOverride: row.otRatePerHourOverride ?? "",
       commissionPercentage: row.commissionPercentage ?? "",
       notes: row.notes || "",
       documents: Array.isArray(row.documents) ? row.documents : [],
@@ -319,7 +313,6 @@ function Staff() {
             </div>
             <div className="workers-field"><label>Basic Salary</label><input type="number" min="0" value={form.basicSalary} onChange={(e) => setFormField("basicSalary", e.target.value)} /></div>
             <div className="workers-field"><label>Daily Rate</label><input type="number" min="0" value={form.perDayRate} onChange={(e) => setFormField("perDayRate", e.target.value)} /></div>
-            <div className="workers-field"><label>OT Rate Override</label><input type="number" min="0" step="0.01" value={form.otRatePerHourOverride} onChange={(e) => setFormField("otRatePerHourOverride", e.target.value)} /></div>
             <div className="workers-field"><label>Commission %</label><input type="number" min="0" max="100" value={form.commissionPercentage} onChange={(e) => setFormField("commissionPercentage", e.target.value)} /></div>
             <div className="workers-field workers-field--notes">
               <label>Documents (URL list)</label>

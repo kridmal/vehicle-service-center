@@ -18,7 +18,7 @@ export const listVehicles = async (req, res, next) => {
 
 export const createVehicle = async (req, res, next) => {
   try {
-    const { customerId, vehicleNumber, brandId, modelId } = req.body;
+    const { customerId, vehicleNumber, brandId, modelId, year } = req.body;
     if (!customerId || !vehicleNumber || !brandId || !modelId) {
       return res.status(400).json({
         message: "Customer, vehicle number, brand, and model are required",
@@ -52,6 +52,7 @@ export const createVehicle = async (req, res, next) => {
       brandName: brand.name,
       modelId: model._id,
       modelName: model.name,
+      ...(year ? { year } : {}),
     });
     return res.status(201).json(vehicle);
   } catch (error) {

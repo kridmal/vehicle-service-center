@@ -14,7 +14,6 @@ function Settings() {
     },
     payrollSettings: {
       standardDailyHours: 8,
-      otRatePerHour: 0,
     },
     salaryComponents: {
       allowances: [],
@@ -139,24 +138,6 @@ function Settings() {
                   payrollSettings: {
                     ...prev.payrollSettings,
                     standardDailyHours: Number(e.target.value || 0),
-                  },
-                }))
-              }
-            />
-          </div>
-          <div className="workers-field">
-            <label>Default OT Rate Per Hour (LKR)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={settings.payrollSettings?.otRatePerHour ?? 0}
-              onChange={(e) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  payrollSettings: {
-                    ...prev.payrollSettings,
-                    otRatePerHour: Number(e.target.value || 0),
                   },
                 }))
               }

@@ -150,6 +150,11 @@
   text-align: right;
 }
 
+.purchases-table th.purchases-right,
+.purchases-table td.purchases-right {
+  text-align: right;
+}
+
 .purchases-empty {
   margin: 0;
   border: 1px dashed #cbd5e1;

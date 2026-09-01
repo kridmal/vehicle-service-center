@@ -145,6 +145,36 @@ function JobCardNew() {
   }, []);
 
   useEffect(() => {
+    const syncCustomers = async () => {
+      try {
+        const { data } = await api.get("/customers");
+        if (!Array.isArray(data)) return;
+        setCustomers((prev) => {
+          const result = [];
+          const seenMongoIds = new Set();
+          for (const c of data) {
+            const mongoId = String(c._id);
+            seenMongoIds.add(mongoId);
+            const existing = prev.find((e) => e.mongoId === mongoId);
+            if (existing) {
+              result.push({ ...existing, name: c.name, phone: c.phone || "", email: c.email || "" });
+            } else {
+              result.push({ _id: c._id, id: mongoId, mongoId, name: c.name, phone: c.phone || "", email: c.email || "", notes: c.notes || "" });
+            }
+          }
+          for (const e of prev) {
+            if (!e.mongoId && !seenMongoIds.has(e.id)) result.push(e);
+          }
+          return result;
+        });
+      } catch {
+        // silently keep existing ksc_customers data
+      }
+    };
+    syncCustomers();
+  }, []);
+
+  useEffect(() => {
     const loadBrands = async () => {
       try {
         const { data } = await api.get("/vehicle-master/brands", {
@@ -1005,6 +1035,7 @@ function JobCardNew() {
       vehicleNumber: vehicle.vehicleNumber,
       brandId: resolvedMaster.brandId,
       modelId: resolvedMaster.modelId,
+      year: vehicle.year,
     });
     const mongoId = data?._id || data?.id;
     if (mongoId) {
@@ -1124,6 +1155,7 @@ function JobCardNew() {
         vehicleNumber: newVehicle.vehicleNumber,
         brandId: newVehicle.brandId,
         modelId: newVehicle.modelId,
+        year: newVehicle.year,
       });
       const mongoId = data?._id || data?.id;
       setVehicles((prev) => [

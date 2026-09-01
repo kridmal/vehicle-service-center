@@ -74,6 +74,10 @@ export function AuthProvider({ children }) {
       login: async (email, password) => {
         try {
           const { data } = await api.post("/auth/login", { email, password });
+          // Write immediately so any page effect that fires before the
+          // useEffect([auth]) sync has a token to read from localStorage.
+          localStorage.setItem(TOKEN_KEY, data.token);
+          localStorage.setItem(USER_KEY, JSON.stringify(data.user));
           setAuth({ isAuthenticated: true, user: data.user, token: data.token });
           return { ok: true };
         } catch (error) {
@@ -82,7 +86,11 @@ export function AuthProvider({ children }) {
           return { ok: false, message };
         }
       },
-      logout: () => setAuth({ isAuthenticated: false, user: null, token: null }),
+      logout: () => {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        setAuth({ isAuthenticated: false, user: null, token: null });
+      },
     }),
     [auth]
   );

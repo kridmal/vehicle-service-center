@@ -57,7 +57,6 @@ const isPastMonth = ({ year, month, now = new Date() }) => {
 
 const DEFAULT_PAYROLL_SETTINGS = {
   standardDailyHours: 8,
-  otRatePerHour: 0,
 };
 
 const monthStartDate = ({ year, month }) =>
@@ -82,14 +81,7 @@ const normalizePayrollSettings = (value) => {
     0,
     toNumber(settings.standardDailyHours || DEFAULT_PAYROLL_SETTINGS.standardDailyHours)
   );
-  const otRatePerHour = Math.max(
-    0,
-    toNumber(settings.otRatePerHour || DEFAULT_PAYROLL_SETTINGS.otRatePerHour)
-  );
-  return {
-    standardDailyHours,
-    otRatePerHour,
-  };
+  return { standardDailyHours };
 };
 
 const buildCalendarSummary = (rows = []) => {
@@ -470,7 +462,11 @@ export const generatePayroll = async (req, res, next) => {
           "Attendance is not finalized for this month. Please finalize attendance first.",
       });
     }
-    const otEnabled = Boolean(req.body.otEnabled);
+    // Manual OT amounts keyed by staffId string, submitted from the OT review screen.
+    const otAmountsInput =
+      req.body.otAmounts && typeof req.body.otAmounts === "object"
+        ? req.body.otAmounts
+        : {};
 
     const daysInMonth = totalDaysInMonth(monthInfo.year, monthInfo.month);
     const [calendarRows, staffRows] = await Promise.all([
@@ -597,17 +593,7 @@ export const generatePayroll = async (req, res, next) => {
         calendarSummary.workingDaysInMonth * payrollSettings.standardDailyHours
       );
       const overtimeHours = round2(Math.max(0, monthlyLaborHours - targetHours));
-      const otRate = otEnabled
-        ? round2(
-            Math.max(
-              0,
-              toNumber(
-                staff.otRatePerHourOverride ?? payrollSettings.otRatePerHour
-              )
-            )
-          )
-        : 0;
-      const otAmount = otEnabled ? round2(overtimeHours * otRate) : 0;
+      const otAmount = round2(Math.max(0, toNumber(otAmountsInput[staffId] || 0)));
       const grossPay = round2(baseTotals.grossPay + otAmount);
       const baseTotalDeductions = round2(baseTotals.totalDeductions);
 
@@ -629,7 +615,6 @@ export const generatePayroll = async (req, res, next) => {
           targetHours,
           monthlyLaborHours,
           overtimeHours,
-          otRate,
           otAmount,
         },
       };
@@ -654,8 +639,6 @@ export const generatePayroll = async (req, res, next) => {
         status: "DRAFT",
         generatedAt: new Date(),
         generatedBy: req.user?.name || req.user?.email || "",
-        otEnabled,
-        otRatePerHourUsed: payrollSettings.otRatePerHour,
         standardDailyHoursUsed: payrollSettings.standardDailyHours,
         notes: String(req.body.notes || "").trim(),
       });
@@ -663,8 +646,6 @@ export const generatePayroll = async (req, res, next) => {
       run.generatedAt = new Date();
       run.generatedBy = req.user?.name || req.user?.email || "";
       run.status = "DRAFT";
-      run.otEnabled = otEnabled;
-      run.otRatePerHourUsed = payrollSettings.otRatePerHour;
       run.standardDailyHoursUsed = payrollSettings.standardDailyHours;
       run.notes = String(req.body.notes || run.notes || "").trim();
       await run.save();
@@ -730,7 +711,6 @@ export const generatePayroll = async (req, res, next) => {
             targetHours: entry.performance.targetHours,
             monthlyLaborHours: entry.performance.monthlyLaborHours,
             overtimeHours: entry.performance.overtimeHours,
-            otRate: entry.performance.otRate,
             otAmount: entry.performance.otAmount,
           },
           advanceDeduction: {
@@ -957,6 +937,56 @@ export const unlockPayroll = async (req, res, next) => {
     row.isLocked = false;
     await row.save();
     return res.json(row);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const previewOT = async (req, res, next) => {
+  try {
+    const monthInfo = parseYearMonth({ month: req.query.month, year: req.query.year });
+    if (!monthInfo) {
+      return res.status(400).json({ message: "Invalid month or year" });
+    }
+    if (!isPastMonth(monthInfo)) {
+      return res.status(400).json({ message: "OT preview only available after month end." });
+    }
+
+    const finalization = await AttendanceMonthFinalization.findOne({
+      year: monthInfo.year,
+      month: monthInfo.month,
+    });
+    if (!finalization) {
+      return res.status(400).json({
+        message: "Attendance is not finalized for this month. Please finalize attendance first.",
+      });
+    }
+
+    const daysInMonth = totalDaysInMonth(monthInfo.year, monthInfo.month);
+    const [calendarRows, staffRows, payrollSettingsRow] = await Promise.all([
+      WorkCalendarDay.find({ year: monthInfo.year, month: monthInfo.month }).sort({ date: 1 }),
+      Staff.find({ active: { $ne: false }, status: { $ne: "inactive" } }),
+      AppSetting.findOne({ key: "payrollSettings" }),
+    ]);
+
+    if (!calendarRows.length || calendarRows.length < daysInMonth) {
+      return res.status(400).json({ message: "Work calendar not generated for this month." });
+    }
+
+    const calendarSummary = buildCalendarSummary(calendarRows);
+    const payrollSettings = normalizePayrollSettings(payrollSettingsRow?.value);
+    const staffIds = staffRows.map((row) => row._id);
+    const workLogHoursMap = await buildWorkLogHoursMap({ staffIds, monthInfo });
+    const targetHours = round2(calendarSummary.workingDaysInMonth * payrollSettings.standardDailyHours);
+
+    const preview = staffRows.map((staff) => {
+      const staffId = String(staff._id);
+      const monthlyLaborHours = round2(workLogHoursMap.get(staffId) || 0);
+      const overtimeHours = round2(Math.max(0, monthlyLaborHours - targetHours));
+      return { staffId, name: staff.fullName, monthlyLaborHours, targetHours, overtimeHours };
+    });
+
+    return res.json({ preview, targetHours });
   } catch (error) {
     return next(error);
   }

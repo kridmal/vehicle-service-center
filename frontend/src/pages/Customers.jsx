@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import PageHeader from "../components/PageHeader.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import api from "../services/api.js";
 import "./Customers.css";
 
 function Customers() {
   const { user } = useAuth();
-  const [customers, setCustomers] = useState([]);
+  // useLocalStorageState so visiting this page populates ksc_customers
+  // for other pages (JobCards, Vehicles, JobCardNew) that look up customer names.
+  const [customers, setCustomers] = useLocalStorageState("ksc_customers", []);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -19,7 +22,19 @@ function Customers() {
   const loadCustomers = async () => {
     try {
       const { data } = await api.get("/customers");
-      setCustomers(Array.isArray(data) ? data : []);
+      // Map to a shape compatible with other pages that look up by id/mongoId,
+      // while keeping _id so this page's edit/delete still works.
+      const mapped = (Array.isArray(data) ? data : []).map((c) => ({
+        _id: c._id,
+        id: String(c._id),
+        mongoId: String(c._id),
+        name: c.name || "",
+        phone: c.phone || "",
+        email: c.email || "",
+        notes: c.notes || "",
+        createdAt: c.createdAt,
+      }));
+      setCustomers(mapped);
     } catch (err) {
       setError(err.response?.data?.message || "Unable to load customers.");
     }

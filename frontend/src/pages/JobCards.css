@@ -729,6 +729,23 @@
   accent-color: #1e3a8a;
 }
 
+.job-card-task-table__head--custom,
+.job-card-task-table__row--custom {
+  grid-template-columns: minmax(0, 1fr) 110px 120px minmax(180px, 1fr) 90px 80px;
+}
+
+.job-card-task-table__row--custom input[type="text"],
+.job-card-task-table__row--custom input[type="search"] {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
 .job-card-modal__checklist {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

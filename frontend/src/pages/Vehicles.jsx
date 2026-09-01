@@ -8,7 +8,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import "./Vehicles.css";
 
 function Vehicles() {
-  const [customers] = useLocalStorageState("ksc_customers", []);
+  const [customers, setCustomers] = useLocalStorageState("ksc_customers", []);
   const [vehicles, setVehicles] = useLocalStorageState("ksc_vehicles", []);
   const [customerId, setCustomerId] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
@@ -57,6 +57,36 @@ function Vehicles() {
     };
     loadBrands();
   }, [navigate]);
+
+  useEffect(() => {
+    const syncCustomers = async () => {
+      try {
+        const { data } = await api.get("/customers");
+        if (!Array.isArray(data)) return;
+        setCustomers((prev) => {
+          const result = [];
+          const seenMongoIds = new Set();
+          for (const c of data) {
+            const mongoId = String(c._id);
+            seenMongoIds.add(mongoId);
+            const existing = prev.find((e) => e.mongoId === mongoId);
+            if (existing) {
+              result.push({ ...existing, name: c.name, phone: c.phone || "", email: c.email || "" });
+            } else {
+              result.push({ _id: c._id, id: mongoId, mongoId, name: c.name, phone: c.phone || "", email: c.email || "", notes: c.notes || "" });
+            }
+          }
+          for (const e of prev) {
+            if (!e.mongoId && !seenMongoIds.has(e.id)) result.push(e);
+          }
+          return result;
+        });
+      } catch {
+        // silently keep existing ksc_customers data
+      }
+    };
+    syncCustomers();
+  }, []);
 
   useEffect(() => {
     const loadVehicles = async () => {
@@ -218,6 +248,7 @@ function Vehicles() {
             vehicleNumber: payload.vehicleNumber,
             brandId: payload.brandId,
             modelId: payload.modelId,
+            year: payload.year,
           })
           .catch(() => {
             setError("Unable to sync vehicle changes right now.");
@@ -242,6 +273,7 @@ function Vehicles() {
             vehicleNumber: payload.vehicleNumber,
             brandId: payload.brandId,
             modelId: payload.modelId,
+            year: payload.year,
           })
           .then(({ data }) => {
             const mongoId = data?._id || data?.id;

@@ -16,6 +16,7 @@ const vehicleSchema = new mongoose.Schema(
     brandName: { type: String, trim: true },
     modelId: { type: mongoose.Schema.Types.ObjectId, ref: "VehicleModel" },
     modelName: { type: String, trim: true },
+    year: { type: String, trim: true },
   },
   { timestamps: true }
 );

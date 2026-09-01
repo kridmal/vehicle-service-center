@@ -38,7 +38,11 @@ function Payroll() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState("");
-  const [otEnabled, setOtEnabled] = useState(false);
+
+  // OT review step state
+  const [otPreview, setOtPreview] = useState(null); // { preview: [...], targetHours }
+  const [otAmounts, setOtAmounts] = useState({});   // { [staffId]: string }
+  const [otReviewVisible, setOtReviewVisible] = useState(false);
 
   const monthPast = useMemo(() => isPastMonth(month), [month]);
 
@@ -54,13 +58,13 @@ function Payroll() {
     setFinalization(finalizationRes.data || null);
     setRun(payrollRes.data?.run || null);
     setLines(Array.isArray(payrollRes.data?.lines) ? payrollRes.data.lines : []);
-    if (payrollRes.data?.run?.otEnabled !== undefined) {
-      setOtEnabled(Boolean(payrollRes.data.run.otEnabled));
-    }
   };
 
   useEffect(() => {
     setLoading(true);
+    setOtReviewVisible(false);
+    setOtPreview(null);
+    setOtAmounts({});
     load()
       .catch((err) => setError(err.response?.data?.message || "Unable to load payroll data."))
       .finally(() => setLoading(false));
@@ -92,33 +96,59 @@ function Payroll() {
     }
   };
 
-  const generatePayroll = async () => {
+  // Step 1: fetch OT preview, show review table
+  const startGenerate = async () => {
     if (!monthPast) return;
-    const { year, month: monthNumber } = parseMonthValue(month);
-    const regenerate = run?.status === "DRAFT";
-    if (regenerate) {
-      const shouldRegenerate = window.confirm(
+    if (run?.status === "DRAFT") {
+      const ok = window.confirm(
         "A draft payroll run already exists for this month. Regenerate and replace it?"
       );
-      if (!shouldRegenerate) return;
+      if (!ok) return;
     }
+    setActionLoading("preview");
+    setError("");
+    setMessage("");
+    try {
+      const { year, month: monthNumber } = parseMonthValue(month);
+      const { data } = await api.get("/payroll/ot-preview", {
+        params: { year, month: monthNumber },
+      });
+      setOtPreview(data);
+      setOtAmounts({});
+      setOtReviewVisible(true);
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to load OT preview.");
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  // Step 2: confirm with manual OT amounts and generate
+  const confirmGenerate = async () => {
+    const { year, month: monthNumber } = parseMonthValue(month);
+    const regenerate = run?.status === "DRAFT";
     setActionLoading("generate");
     setError("");
     setMessage("");
     try {
+      // Convert string inputs to numbers; omit zeros to keep payload clean
+      const otAmountsPayload = {};
+      for (const [staffId, raw] of Object.entries(otAmounts)) {
+        const val = Number(raw || 0);
+        if (val > 0) otAmountsPayload[staffId] = val;
+      }
       const { data } = await api.post("/payroll/generate", {
         year,
         month: monthNumber,
-        otEnabled,
         regenerate,
+        otAmounts: otAmountsPayload,
       });
       setMessage(
-        `Payroll ${regenerate ? "regenerated" : "generated"} for ${month}. ${
-          data.lineCount || 0
-        } employees. OT ${
-          otEnabled ? "enabled" : "disabled"
-        }.`
+        `Payroll ${regenerate ? "regenerated" : "generated"} for ${month}. ${data.lineCount || 0} employees.`
       );
+      setOtReviewVisible(false);
+      setOtPreview(null);
+      setOtAmounts({});
       await load();
     } catch (err) {
       setError(err.response?.data?.message || "Unable to generate payroll.");
@@ -171,7 +201,7 @@ function Payroll() {
       {error ? <p className="payroll-error">{error}</p> : null}
       {message ? <p className="payroll-success">{message}</p> : null}
       <p className="payroll-warning">
-        Process: 1) Finalize attendance 2) Generate payroll 3) Mark payments.
+        Process: 1) Finalize attendance 2) Review OT &amp; Generate payroll 3) Mark payments.
       </p>
 
       <section className="payroll-card">
@@ -232,26 +262,97 @@ function Payroll() {
         <div className="payroll-card__head">
           <h2>Generate Payroll</h2>
         </div>
-        <div className="payroll-field">
-          <label className="payroll-toggle">
-            <input
-              type="checkbox"
-              checked={otEnabled}
-              onChange={(event) => setOtEnabled(event.target.checked)}
-              disabled={actionLoading === "generate"}
-            />
-            <span>Enable OT/Incentive for this payroll run</span>
-          </label>
-        </div>
-        <div className="payroll-actions">
-          <button
-            type="button"
-            onClick={generatePayroll}
-            disabled={!monthPast || !calendarFound || !finalization?.finalized || actionLoading === "generate"}
-          >
-            {run?.status === "DRAFT" ? "Regenerate Payroll" : "Generate Payroll"}
-          </button>
-        </div>
+
+        {otReviewVisible && otPreview ? (
+          <>
+            <p className="payroll-note">
+              Review calculated OT hours below. Enter a manual OT amount (LKR) for any employee who earned overtime — leave blank or 0 for none.
+            </p>
+            <div className="payroll-table-wrap">
+              <table className="payroll-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Labor Hours</th>
+                    <th>Target Hours</th>
+                    <th>OT Hours</th>
+                    <th>OT Amount (LKR)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {otPreview.preview.map((entry) => (
+                    <tr key={entry.staffId}>
+                      <td>{entry.name}</td>
+                      <td>{entry.monthlyLaborHours}</td>
+                      <td>{entry.targetHours}</td>
+                      <td>{entry.overtimeHours}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={otAmounts[entry.staffId] ?? ""}
+                          onChange={(e) =>
+                            setOtAmounts((prev) => ({
+                              ...prev,
+                              [entry.staffId]: e.target.value,
+                            }))
+                          }
+                          style={{ width: "120px" }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="payroll-actions">
+              <button
+                type="button"
+                className="payroll-actions__secondary"
+                onClick={() => {
+                  setOtReviewVisible(false);
+                  setOtPreview(null);
+                  setOtAmounts({});
+                }}
+                disabled={actionLoading === "generate"}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmGenerate}
+                disabled={actionLoading === "generate"}
+              >
+                {actionLoading === "generate"
+                  ? "Generating…"
+                  : run?.status === "DRAFT"
+                  ? "Confirm & Regenerate"
+                  : "Confirm & Generate"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="payroll-actions">
+            <button
+              type="button"
+              onClick={startGenerate}
+              disabled={
+                !monthPast ||
+                !calendarFound ||
+                !finalization?.finalized ||
+                actionLoading === "preview"
+              }
+            >
+              {actionLoading === "preview"
+                ? "Loading…"
+                : run?.status === "DRAFT"
+                ? "Regenerate Payroll"
+                : "Generate Payroll"}
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="payroll-card">
@@ -286,9 +387,6 @@ function Payroll() {
                   <th>Present</th>
                   <th>Absent</th>
                   <th>LOP Days</th>
-                  <th>Labor Hours</th>
-                  <th>Target Hours</th>
-                  <th>OT Hours</th>
                   <th>OT Amount</th>
                   <th>Advance Deduction</th>
                   <th>Gross</th>
@@ -307,10 +405,7 @@ function Payroll() {
                     <td>{line.attendanceSummary?.presentDays || 0}</td>
                     <td>{line.attendanceSummary?.absentDays || 0}</td>
                     <td>{line.deductions?.lopDays || 0}</td>
-                    <td>{line.performanceSummary?.monthlyLaborHours || 0}</td>
-                    <td>{line.performanceSummary?.targetHours || 0}</td>
-                    <td>{line.performanceSummary?.overtimeHours || 0}</td>
-                    <td>{formatMoney(line.performanceSummary?.otAmount)}</td>
+                    <td>{formatMoney(line.payComponents?.otAmount)}</td>
                     <td>{formatMoney(line.advanceDeduction?.advanceDeductionTotal)}</td>
                     <td>{formatMoney(line.payComponents?.grossPay)}</td>
                     <td>{formatMoney(line.deductions?.totalDeductions)}</td>

@@ -86,44 +86,63 @@ function JobCardPrint() {
     [serviceEntries]
   );
 
-  const taskRows = useMemo(
-    () =>
-      serviceEntries.flatMap((service, serviceIndex) => {
-        const serviceName =
-          service?.serviceName || service?.serviceType || `Service ${serviceIndex + 1}`;
-        const tasks = Array.isArray(service?.tasks) ? service.tasks : [];
-        if (tasks.length === 0) {
-          return [
-            {
-              id: `${serviceName}-none-${serviceIndex}`,
-              serviceName,
-              description: "-",
-              laborHours: "",
-              laborCharge: "",
-            },
-          ];
-        }
+  const taskRows = useMemo(() => {
+    const serviceRows = serviceEntries.flatMap((service, serviceIndex) => {
+      const serviceName =
+        service?.serviceName || service?.serviceType || `Service ${serviceIndex + 1}`;
+      const tasks = Array.isArray(service?.tasks) ? service.tasks : [];
+      if (tasks.length === 0) {
+        return [
+          {
+            id: `${serviceName}-none-${serviceIndex}`,
+            serviceName,
+            description: "-",
+            laborHours: "",
+            laborCharge: "",
+          },
+        ];
+      }
+      return tasks.map((task, taskIndex) => ({
+        id: `${serviceName}-${task?.taskId || task?.title || taskIndex}`,
+        serviceName,
+        description: task?.title || task?.taskName || "-",
+        assignedStaff:
+          task?.assignedStaffSnapshot?.employeeNo && task?.assignedStaffSnapshot?.name
+            ? `${task.assignedStaffSnapshot.employeeNo} - ${task.assignedStaffSnapshot.name}`
+            : task?.assignedStaffSnapshot?.name || "-",
+        laborHours:
+          task?.laborHours === null || task?.laborHours === undefined
+            ? ""
+            : Number(task.laborHours),
+        laborCharge:
+          task?.laborCharge === null || task?.laborCharge === undefined
+            ? ""
+            : Number(task.laborCharge),
+      }));
+    });
 
-        return tasks.map((task, taskIndex) => ({
-          id: `${serviceName}-${task?.taskId || task?.title || taskIndex}`,
-          serviceName,
-          description: task?.title || task?.taskName || "-",
-          assignedStaff:
-            task?.assignedStaffSnapshot?.employeeNo && task?.assignedStaffSnapshot?.name
-              ? `${task.assignedStaffSnapshot.employeeNo} - ${task.assignedStaffSnapshot.name}`
-              : task?.assignedStaffSnapshot?.name || "-",
-          laborHours:
-            task?.laborHours === null || task?.laborHours === undefined
-              ? ""
-              : Number(task.laborHours),
-          laborCharge:
-            task?.laborCharge === null || task?.laborCharge === undefined
-              ? ""
-              : Number(task.laborCharge),
-        }));
-      }),
-    [serviceEntries]
-  );
+    const customRows = (Array.isArray(jobCard?.customTasks) ? jobCard.customTasks : []).map(
+      (task, index) => ({
+        id: `custom-task-${index}`,
+        serviceName: "Custom Task",
+        description: task?.taskName || "-",
+        assignedStaff:
+          task?.assignedStaffSnapshot?.employeeNo && task?.assignedStaffSnapshot?.name
+            ? `${task.assignedStaffSnapshot.employeeNo} - ${task.assignedStaffSnapshot.name}`
+            : task?.assignedStaffSnapshot?.name || "-",
+        laborHours:
+          task?.laborHours === null || task?.laborHours === undefined
+            ? ""
+            : Number(task.laborHours),
+        laborCharge:
+          task?.laborCharge === null || task?.laborCharge === undefined
+            ? ""
+            : Number(task.laborCharge),
+      })
+    );
+
+    return [...serviceRows, ...customRows];
+  }, [serviceEntries, jobCard?.customTasks]);
 
   const blankTaskRows = useMemo(
     () =>
