@@ -1,7 +1,7 @@
 {
-  "name": "Kaluarachchi SC",
-  "short_name": "Kaluarachchi SC",
-  "description": "Kaluarachchi Service Center",
+  "name": "Senavi Auto Care",
+  "short_name": "Senavi Auto Care",
+  "description": "Senavi Auto Care",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

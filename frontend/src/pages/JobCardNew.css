@@ -353,8 +353,12 @@
 
 .job-card-service-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
   gap: 18px;
+}
+
+.job-card-service-grid__services {
+  container-type: inline-size;
 }
 
 .job-card-service-select {
@@ -445,20 +449,311 @@
   accent-color: #2563eb;
 }
 
+.job-card-task-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.job-card-task-table__head,
+.job-card-task-table__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 120px minmax(180px, 1fr) 90px;
+  gap: 10px;
+  align-items: center;
+}
+
+.job-card-task-table__head {
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.job-card-task-table__row {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.job-card-task-table__task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+  min-width: 0;
+}
+
+.job-card-task-table__task span {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.job-card-task-table__task input {
+  accent-color: #2563eb;
+}
+
+.job-card-task-table__row input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-align: right;
+}
+
+.job-card-task-table__billable {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 38px;
+  gap: 6px;
+  font-size: 12px;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.job-card-task-table__billable input {
+  accent-color: #2563eb;
+}
+
+@container (max-width: 700px) {
+  .job-card-task-table__head,
+  .job-card-task-table__row {
+    grid-template-columns: minmax(0, 1fr) 96px 108px minmax(160px, 1fr) 74px;
+    gap: 8px;
+  }
+
+  .job-card-task-table__row input[type="number"] {
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+
+  .job-card-task-table__billable {
+    min-height: 0;
+    font-size: 11px;
+  }
+}
+
+@container (max-width: 560px) {
+  .job-card-task-table__head {
+    display: none;
+  }
+
+  .job-card-task-table__row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-items: center;
+  }
+}
+
+.job-card-labor-summary {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.job-card-labor-summary span {
+  font-size: 13px;
+  color: #1e3a8a;
+}
+
+.job-card-labor-summary strong {
+  font-size: 14px;
+  color: #0f172a;
+}
+
 .job-card-muted {
   margin: 0;
   font-size: 13px;
   color: #94a3b8;
 }
 
+.job-card-loyalty {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card-loyalty__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card-loyalty__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #dbeafe;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.job-card-loyalty__item p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.job-card-pricing {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card-pricing__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-card-pricing__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.job-card-pricing__row span {
+  font-size: 13px;
+  color: #475569;
+}
+
+.job-card-pricing__row strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.job-card-pricing__row.is-discount {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.job-card-pricing__row.is-discount span,
+.job-card-pricing__row.is-discount strong {
+  color: #166534;
+}
+
+.job-card-pricing__row.is-grand {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+}
+
+.loyalty-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.loyalty-popup__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.loyalty-popup__panel {
+  position: relative;
+  width: min(640px, 100%);
+  max-height: 80vh;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.28);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.loyalty-popup__head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.loyalty-popup__head p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.loyalty-popup__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.loyalty-popup__item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.loyalty-popup__item input {
+  margin-top: 2px;
+  accent-color: #1e3a8a;
+}
+
+.loyalty-popup__item.is-selected {
+  border-color: #1e40af;
+  background: #eff6ff;
+}
+
+.loyalty-popup__item p {
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 12px;
+}
+
+.loyalty-popup__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .job-card-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-}
-
-.job-card-confirm .job-card-field input {
-  letter-spacing: 0.08em;
 }
 
 .job-card-button {
@@ -524,9 +819,15 @@
   .job-card-owner-grid {
     grid-template-columns: 1fr;
   }
+
+  .job-card-task-table__head,
+  .job-card-task-table__row {
+    grid-template-columns: minmax(0, 1fr) 108px 120px minmax(170px, 1fr) 80px;
+    gap: 10px;
+  }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
   .job-card-new {
     padding: 16px;
     border-radius: 18px;
@@ -544,5 +845,30 @@
   .job-card-actions {
     flex-direction: column-reverse;
     align-items: stretch;
+  }
+
+  .loyalty-popup__actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .job-card-task-table__head {
+    display: none;
+  }
+
+  .job-card-task-table__row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .job-card-task-table__row input[type="number"] {
+    max-width: none;
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+
+  .job-card-task-table__billable {
+    min-height: 0;
+    font-size: 11px;
   }
 }

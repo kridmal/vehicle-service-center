@@ -15,6 +15,19 @@
   color: #64748b;
 }
 
+.payroll-note {
+  margin: 12px 0 0;
+  color: #92400e;
+  font-size: 13px;
+}
+
+.payroll-ok {
+  margin: 12px 0 0;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .payroll-warning {
   margin: 0;
   padding: 12px 14px;
@@ -71,6 +84,18 @@
 .payroll-field label {
   font-weight: 600;
   color: #0f172a;
+}
+
+.payroll-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.payroll-toggle input {
+  accent-color: #1e3a8a;
 }
 
 .payroll-field input,
@@ -190,8 +215,104 @@
   font-weight: 600;
 }
 
-@media (max-width: 640px) {
+.payroll-table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.payroll-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1200px;
+}
+
+.payroll-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.payroll-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+@media (max-width: 768px) {
   .payroll-card {
     padding: 16px;
+  }
+
+  .payroll-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .payroll-card {
+    padding: 14px;
+  }
+
+  .payroll-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .payroll-table-wrap {
+    overflow-x: visible;
+  }
+
+  .payroll-table {
+    min-width: 0;
+    display: block;
+  }
+
+  .payroll-table thead {
+    display: none;
+  }
+
+  .payroll-table tbody {
+    display: block;
+  }
+
+  .payroll-table tr {
+    display: block;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    padding: 8px;
+    background: #ffffff;
+  }
+
+  .payroll-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 4px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 13px;
+  }
+
+  .payroll-table td:last-child {
+    border-bottom: none;
+  }
+
+  .payroll-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #475569;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    min-width: 90px;
   }
 }

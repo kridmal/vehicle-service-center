@@ -4,8 +4,10 @@ const taskSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
     isRequired: { type: Boolean, default: false },
-  },
-  { _id: false }
+    laborHoursDefault: { type: Number, min: 0, default: 0 },
+    laborChargeDefault: { type: Number, min: 0, default: 0 },
+    isBillable: { type: Boolean, default: true },
+  }
 );
 
 const serviceTypeSchema = new mongoose.Schema(

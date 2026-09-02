@@ -6,6 +6,7 @@ import "./InvoiceList.css";
 
 function InvoiceList() {
   const [invoices, setInvoices] = useState([]);
+  const [sales, setSales] = useState([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -17,8 +18,32 @@ function InvoiceList() {
       setIsLoading(true);
       setError("");
       try {
-        const { data } = await api.get("/invoices");
-        setInvoices(Array.isArray(data) ? data : []);
+        const [invoiceResult, salesResult] = await Promise.allSettled([
+          api.get("/invoices"),
+          api.get("/sales"),
+        ]);
+
+        if (invoiceResult.status !== "fulfilled") {
+          const invoiceError = invoiceResult.reason;
+          if (
+            invoiceError.response?.status === 401 ||
+            invoiceError.response?.status === 403
+          ) {
+            navigate("/login", { replace: true });
+            return;
+          }
+          throw invoiceError;
+        }
+
+        setInvoices(
+          Array.isArray(invoiceResult.value?.data) ? invoiceResult.value.data : []
+        );
+
+        if (salesResult.status === "fulfilled") {
+          setSales(Array.isArray(salesResult.value?.data) ? salesResult.value.data : []);
+        } else {
+          setSales([]);
+        }
       } catch (error) {
         if (error.response?.status === 401 || error.response?.status === 403) {
           navigate("/login", { replace: true });
@@ -36,12 +61,34 @@ function InvoiceList() {
 
   const normalizedInvoices = useMemo(
     () =>
-      invoices.map((invoice) => ({
-        ...invoice,
-        id: invoice._id || invoice.id,
-        paymentStatus: (invoice.paymentStatus || "UNPAID").toUpperCase(),
-      })),
-    [invoices]
+      [
+        ...invoices.map((invoice) => ({
+          ...invoice,
+          id: invoice._id || invoice.id,
+          sourceId: invoice._id || invoice.id,
+          invoiceType: (invoice.invoiceType || "JOB_CARD").toUpperCase(),
+          paymentStatus: (invoice.paymentStatus || "UNPAID").toUpperCase(),
+          amount: Number(invoice.totalAmount) || 0,
+          displayNumber: invoice.invoiceNumber || "-",
+          displayDate: invoice.createdAt || null,
+        })),
+        ...sales.map((sale) => ({
+          ...sale,
+          id: `sale-${sale._id || sale.id}`,
+          sourceId: sale._id || sale.id,
+          invoiceType: "SALE",
+          paymentStatus: String(sale.status || "UNPAID").toUpperCase() === "PAID" ? "PAID" : "UNPAID",
+          amount: Number(sale.grandTotal) || 0,
+          displayNumber: sale.saleNumber || "-",
+          displayDate: sale.saleDate || sale.createdAt || null,
+          jobCardNo: "-",
+        })),
+      ].sort((a, b) => {
+        const dateA = new Date(a.displayDate || 0).getTime();
+        const dateB = new Date(b.displayDate || 0).getTime();
+        return dateB - dateA;
+      }),
+    [invoices, sales]
   );
 
   const filteredInvoices = useMemo(() => {
@@ -52,7 +99,8 @@ function InvoiceList() {
       }
       if (!query) return true;
       return (
-        invoice.invoiceNumber?.toLowerCase().includes(query) ||
+        String(invoice.displayNumber || "").toLowerCase().includes(query) ||
+        String(invoice.invoiceType || "").toLowerCase().includes(query) ||
         String(invoice.jobCardNo || "").toLowerCase().includes(query)
       );
     });
@@ -67,7 +115,7 @@ function InvoiceList() {
       (invoice) => invoice.paymentStatus !== "PAID"
     );
     const revenue = paid.reduce(
-      (sum, invoice) => sum + (Number(invoice.totalAmount) || 0),
+      (sum, invoice) => sum + (Number(invoice.amount) || 0),
       0
     );
     return {
@@ -111,14 +159,14 @@ function InvoiceList() {
             </select>
           </div>
           <div className="invoice-list__field">
-            <label htmlFor="invoice-search">Search</label>
-            <input
-              id="invoice-search"
-              type="search"
-              placeholder="Invoice No / Job Card No"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
+              <label htmlFor="invoice-search">Search</label>
+              <input
+                id="invoice-search"
+                type="search"
+                placeholder="Invoice No / Type / Job Card No"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
           </div>
         </div>
       </div>
@@ -159,6 +207,7 @@ function InvoiceList() {
               <thead>
                 <tr>
                   <th>Invoice No</th>
+                  <th>Type</th>
                   <th>Job Card No</th>
                   <th>Date</th>
                   <th className="cell-right">Amount (LKR)</th>
@@ -169,17 +218,34 @@ function InvoiceList() {
               <tbody>
                 {filteredInvoices.map((invoice) => {
                   const statusClass = invoice.paymentStatus.toLowerCase();
+                  const typeClass =
+                    invoice.invoiceType === "SALE"
+                      ? "invoice-type-badge--sale"
+                      : "invoice-type-badge--job";
+                  const viewPath =
+                    invoice.invoiceType === "SALE"
+                      ? `/sales/${invoice.sourceId}/invoice`
+                      : `/invoices/${invoice.sourceId}`;
+                  const printPath =
+                    invoice.invoiceType === "SALE"
+                      ? `/sales/${invoice.sourceId}/invoice?print=1`
+                      : `/invoices/${invoice.sourceId}?print=1`;
                   return (
                     <tr key={invoice.id}>
-                      <td>{invoice.invoiceNumber}</td>
+                      <td>{invoice.displayNumber}</td>
+                      <td>
+                        <span className={`invoice-type-badge ${typeClass}`}>
+                          {invoice.invoiceType}
+                        </span>
+                      </td>
                       <td>{invoice.jobCardNo || "-"}</td>
                       <td>
-                        {invoice.createdAt
-                          ? new Date(invoice.createdAt).toLocaleDateString()
+                        {invoice.displayDate
+                          ? new Date(invoice.displayDate).toLocaleDateString()
                           : "-"}
                       </td>
                       <td className="cell-right">
-                        {formatCurrency(invoice.totalAmount)}
+                        {formatCurrency(invoice.amount)}
                       </td>
                       <td>
                         <span
@@ -190,10 +256,7 @@ function InvoiceList() {
                       </td>
                       <td className="cell-right">
                         <div className="invoice-actions">
-                          <Link
-                            className="invoice-action"
-                            to={`/invoices/${invoice.id}`}
-                          >
+                          <Link className="invoice-action" to={viewPath}>
                             View
                           </Link>
                           <button
@@ -201,7 +264,7 @@ function InvoiceList() {
                             className="invoice-action"
                             onClick={() =>
                               window.open(
-                                `/invoices/${invoice.id}?print=1`,
+                                printPath,
                                 "_blank",
                                 "noopener"
                               )

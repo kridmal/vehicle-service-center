@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import PageHeader from "../../components/PageHeader.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import api from "../../services/api.js";
+import { computeItemDiscount } from "../../utils/itemDiscount.js";
 import "./InventoryPage.css";
 
 function InventoryPage() {
@@ -33,6 +34,18 @@ function InventoryPage() {
   const [categoryActionId, setCategoryActionId] = useState("");
   const [editingCategoryId, setEditingCategoryId] = useState("");
   const [categoryDraft, setCategoryDraft] = useState({ name: "" });
+  const [discountTarget, setDiscountTarget] = useState(null);
+  const [discountDraft, setDiscountDraft] = useState({
+    discountEnabled: false,
+    discountType: "PERCENT",
+    discountValue: "",
+    discountStartAt: "",
+    discountEndAt: "",
+    minQtyForDiscount: "1",
+    maxDiscountCap: "",
+    discountNote: "",
+  });
+  const [isSavingDiscount, setIsSavingDiscount] = useState(false);
   const [editDraft, setEditDraft] = useState({
     itemName: "",
     category: "",
@@ -117,6 +130,50 @@ function InventoryPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
+  };
+
+  const formatMoney = (value) =>
+    `Rs. ${(Number(value) || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
+  const toDateInputValue = (value) => {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toISOString().slice(0, 10);
+  };
+
+  const formatDiscountLabel = (item) => {
+    if (!item?.discountEnabled) return "-";
+    const type = String(item.discountType || "")
+      .trim()
+      .toUpperCase();
+    const value = Number(item.discountValue) || 0;
+    if (type === "PERCENT") {
+      return `${value}%`;
+    }
+    if (type === "AMOUNT") {
+      return formatMoney(value);
+    }
+    return "-";
+  };
+
+  const computeDiscountedUnitPrice = (item) => {
+    const unitPriceOriginal = Number(item?.sellingPrice) || 0;
+    const result = computeItemDiscount({
+      unitPriceOriginal,
+      qty: 1,
+      discountEnabled: item?.discountEnabled,
+      discountType: item?.discountType,
+      discountValue: item?.discountValue,
+      startAt: item?.discountStartAt,
+      endAt: item?.discountEndAt,
+      minQty: item?.minQtyForDiscount,
+      cap: item?.maxDiscountCap,
+    });
+    return result.unitPriceNet;
   };
 
   const buildSku = ({ nextCategory, nextBrand, nextName, nextVariant }) => {
@@ -385,6 +442,85 @@ function InventoryPage() {
     }
   };
 
+  const openDiscountModal = (item) => {
+    setDiscountTarget(item);
+    setDiscountDraft({
+      discountEnabled: Boolean(item?.discountEnabled),
+      discountType: item?.discountType || "PERCENT",
+      discountValue: item?.discountValue !== undefined ? String(item.discountValue) : "",
+      discountStartAt: toDateInputValue(item?.discountStartAt),
+      discountEndAt: toDateInputValue(item?.discountEndAt),
+      minQtyForDiscount:
+        item?.minQtyForDiscount !== undefined && item?.minQtyForDiscount !== null
+          ? String(item.minQtyForDiscount)
+          : "1",
+      maxDiscountCap:
+        item?.maxDiscountCap !== undefined && item?.maxDiscountCap !== null
+          ? String(item.maxDiscountCap)
+          : "",
+      discountNote: item?.discountNote || "",
+    });
+  };
+
+  const closeDiscountModal = () => {
+    setDiscountTarget(null);
+    setDiscountDraft({
+      discountEnabled: false,
+      discountType: "PERCENT",
+      discountValue: "",
+      discountStartAt: "",
+      discountEndAt: "",
+      minQtyForDiscount: "1",
+      maxDiscountCap: "",
+      discountNote: "",
+    });
+    setIsSavingDiscount(false);
+  };
+
+  const handleSaveDiscount = async () => {
+    if (!discountTarget) return;
+    const id = discountTarget._id || discountTarget.id;
+    if (!id) return;
+
+    setIsSavingDiscount(true);
+    setError("");
+    try {
+      await api.patch(`/inventory/${id}`, {
+        discountEnabled: Boolean(discountDraft.discountEnabled),
+        discountType: discountDraft.discountEnabled
+          ? discountDraft.discountType
+          : null,
+        discountValue: discountDraft.discountEnabled
+          ? Math.max(0, Number(discountDraft.discountValue) || 0)
+          : 0,
+        discountStartAt: discountDraft.discountEnabled && discountDraft.discountStartAt
+          ? discountDraft.discountStartAt
+          : null,
+        discountEndAt: discountDraft.discountEnabled && discountDraft.discountEndAt
+          ? discountDraft.discountEndAt
+          : null,
+        minQtyForDiscount: discountDraft.discountEnabled
+          ? Math.max(1, Number(discountDraft.minQtyForDiscount) || 1)
+          : 1,
+        maxDiscountCap:
+          discountDraft.discountEnabled && discountDraft.maxDiscountCap !== ""
+            ? Math.max(0, Number(discountDraft.maxDiscountCap) || 0)
+            : null,
+        discountNote: discountDraft.discountNote.trim(),
+      });
+      await fetchInventory();
+      closeDiscountModal();
+    } catch (requestError) {
+      handleAuthRedirect(requestError.response?.status);
+      setError(
+        requestError.response?.data?.message ||
+          "Unable to update item discount right now. Please try again."
+      );
+    } finally {
+      setIsSavingDiscount(false);
+    }
+  };
+
   return (
     <div className="inventory-page">
       <PageHeader title="Inventory" />
@@ -615,6 +751,8 @@ function InventoryPage() {
                   <th>Minimum Stock</th>
                   <th>Cost Price</th>
                   <th>Selling Price</th>
+                  <th>Discount</th>
+                  <th>Discounted Unit Price</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -786,6 +924,8 @@ function InventoryPage() {
                           item.sellingPrice ?? "-"
                         )}
                       </td>
+                      <td>{formatDiscountLabel(item)}</td>
+                      <td>{formatMoney(computeDiscountedUnitPrice(item))}</td>
                       <td>
                         <span
                           className={`inventory-status ${
@@ -828,6 +968,14 @@ function InventoryPage() {
                               </button>
                               <button
                                 type="button"
+                                className="inventory-action-button"
+                                onClick={() => openDiscountModal(item)}
+                                disabled={rowActionId === itemId}
+                              >
+                                Discount
+                              </button>
+                              <button
+                                type="button"
                                 className="inventory-action-button inventory-action-button--danger"
                                 onClick={() => handleDelete(itemId)}
                                 disabled={rowActionId === itemId}
@@ -846,6 +994,187 @@ function InventoryPage() {
           </div>
         )}
       </section>
+
+      {discountTarget ? (
+        <div className="inventory-modal__overlay" role="dialog" aria-modal="true">
+          <div className="inventory-modal inventory-modal--discount">
+            <div className="inventory-modal__head">
+              <div>
+                <h2>Item Discount</h2>
+                <p>
+                  Configure predefined discount for{" "}
+                  <strong>{discountTarget.itemName || discountTarget.name}</strong>.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="inventory-action-button"
+                onClick={closeDiscountModal}
+                disabled={isSavingDiscount}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="inventory-grid inventory-grid--two">
+              <div className="inventory-field">
+                <label htmlFor="discount-enabled">Enable Discount</label>
+                <input
+                  id="discount-enabled"
+                  type="checkbox"
+                  checked={discountDraft.discountEnabled}
+                  onChange={(event) =>
+                    setDiscountDraft((prev) => ({
+                      ...prev,
+                      discountEnabled: event.target.checked,
+                    }))
+                  }
+                />
+              </div>
+              <div className="inventory-field">
+                <label htmlFor="discount-type">Discount Type</label>
+                <select
+                  id="discount-type"
+                  value={discountDraft.discountType}
+                  onChange={(event) =>
+                    setDiscountDraft((prev) => ({
+                      ...prev,
+                      discountType: event.target.value,
+                    }))
+                  }
+                  disabled={!discountDraft.discountEnabled}
+                >
+                  <option value="PERCENT">Percent (%)</option>
+                  <option value="AMOUNT">Amount (LKR)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="inventory-grid inventory-grid--two">
+              <div className="inventory-field">
+                <label htmlFor="discount-value">
+                  Discount Value{" "}
+                  {discountDraft.discountType === "PERCENT" ? "(%)" : "(LKR)"}
+                </label>
+                <input
+                  id="discount-value"
+                  type="number"
+                  min="0"
+                  value={discountDraft.discountValue}
+                  onChange={(event) =>
+                    setDiscountDraft((prev) => ({
+                      ...prev,
+                      discountValue: event.target.value,
+                    }))
+                  }
+                  disabled={!discountDraft.discountEnabled}
+                />
+              </div>
+              <div className="inventory-field">
+                <label htmlFor="discount-min-qty">Minimum Qty</label>
+                <input
+                  id="discount-min-qty"
+                  type="number"
+                  min="1"
+                  value={discountDraft.minQtyForDiscount}
+                  onChange={(event) =>
+                    setDiscountDraft((prev) => ({
+                      ...prev,
+                      minQtyForDiscount: event.target.value,
+                    }))
+                  }
+                  disabled={!discountDraft.discountEnabled}
+                />
+              </div>
+            </div>
+
+            <div className="inventory-grid inventory-grid--two">
+              <div className="inventory-field">
+                <label htmlFor="discount-start">Start Date (optional)</label>
+                <input
+                  id="discount-start"
+                  type="date"
+                  value={discountDraft.discountStartAt}
+                  onChange={(event) =>
+                    setDiscountDraft((prev) => ({
+                      ...prev,
+                      discountStartAt: event.target.value,
+                    }))
+                  }
+                  disabled={!discountDraft.discountEnabled}
+                />
+              </div>
+              <div className="inventory-field">
+                <label htmlFor="discount-end">End Date (optional)</label>
+                <input
+                  id="discount-end"
+                  type="date"
+                  value={discountDraft.discountEndAt}
+                  onChange={(event) =>
+                    setDiscountDraft((prev) => ({
+                      ...prev,
+                      discountEndAt: event.target.value,
+                    }))
+                  }
+                  disabled={!discountDraft.discountEnabled}
+                />
+              </div>
+            </div>
+
+            <div className="inventory-grid inventory-grid--two">
+              <div className="inventory-field">
+                <label htmlFor="discount-cap">Max Discount Cap (LKR)</label>
+                <input
+                  id="discount-cap"
+                  type="number"
+                  min="0"
+                  value={discountDraft.maxDiscountCap}
+                  onChange={(event) =>
+                    setDiscountDraft((prev) => ({
+                      ...prev,
+                      maxDiscountCap: event.target.value,
+                    }))
+                  }
+                  disabled={!discountDraft.discountEnabled}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="inventory-field">
+                <label htmlFor="discount-note">Note (optional)</label>
+                <input
+                  id="discount-note"
+                  value={discountDraft.discountNote}
+                  onChange={(event) =>
+                    setDiscountDraft((prev) => ({
+                      ...prev,
+                      discountNote: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="inventory-actions">
+              <button
+                type="button"
+                className="inventory-button inventory-button--ghost"
+                onClick={closeDiscountModal}
+                disabled={isSavingDiscount}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inventory-button inventory-button--primary"
+                onClick={handleSaveDiscount}
+                disabled={isSavingDiscount}
+              >
+                Save Discount
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isCategoryModalOpen ? (
         <div

@@ -1,11 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
+import StaffSearchInput from "../components/StaffSearchInput.jsx";
 import { useLocalStorageState } from "../hooks/useLocalStorageState.js";
 import { createId } from "../utils/id.js";
 import api from "../services/api.js";
+import {
+  computeDraftPricing,
+  formatFreeLaborRewardLabel,
+} from "../utils/loyaltyPricing.js";
+import {
+  computeLaborSubtotalFromTasks,
+  flattenServiceTasks,
+  getTaskInstanceId,
+  roundCurrency as roundTaskCurrency,
+  toNonNegativeNumber,
+} from "../utils/taskLabor.js";
 import { getJobCards, saveJobCards } from "../utils/storage.js";
 import "./JobCardNew.css";
+
+const buildRewardKey = (reward) =>
+  `${String(reward.ruleId)}:${String(reward.milestoneNumber ?? "legacy")}`;
 
 function JobCardNew() {
   const [customers, setCustomers] = useLocalStorageState("ksc_customers", []);
@@ -18,6 +33,9 @@ function JobCardNew() {
   const [selectedServices, setSelectedServices] = useState([]);
   const [serviceAddError, setServiceAddError] = useState("");
   const [serviceTasksDraft, setServiceTasksDraft] = useState([]);
+  const staffSearchTimersRef = useRef({});
+  const [taskStaffSearchTerms, setTaskStaffSearchTerms] = useState({});
+  const [taskStaffSearchResults, setTaskStaffSearchResults] = useState({});
   const [notes, setNotes] = useState("");
   const [ownerSearch, setOwnerSearch] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
@@ -36,11 +54,35 @@ function JobCardNew() {
   const [selectedModelId, setSelectedModelId] = useState("");
   const [changeOwner, setChangeOwner] = useState(false);
   const [currentOwnerLocalId, setCurrentOwnerLocalId] = useState("");
-  const [confirmText, setConfirmText] = useState("");
   const [vehicleLookupError, setVehicleLookupError] = useState("");
   const [syncError, setSyncError] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [loyaltyPreviewLoading, setLoyaltyPreviewLoading] = useState(false);
+  const [loyaltyPopupOpen, setLoyaltyPopupOpen] = useState(false);
+  const [loyaltyPopupRewards, setLoyaltyPopupRewards] = useState([]);
+  const [selectedPopupRewardKey, setSelectedPopupRewardKey] = useState("");
+  const [draftSuppressedMilestones, setDraftSuppressedMilestones] = useState([]);
+  const [appliedRewards, setAppliedRewards] = useState([]);
   const navigate = useNavigate();
+
+  const formatMoney = (value) =>
+    new Intl.NumberFormat("en-LK", {
+      style: "currency",
+      currency: "LKR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0);
+
+  const formatRewardSummary = (reward) => {
+    const rewardType = String(reward?.rewardType || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (rewardType === "free_labor") {
+      return formatFreeLaborRewardLabel(reward);
+    }
+    return reward?.rewardType || "reward";
+  };
 
   const filteredOwners = useMemo(() => {
     const query = ownerSearch.trim().toLowerCase();
@@ -92,6 +134,44 @@ function JobCardNew() {
       options.push(String(value));
     }
     return options;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(staffSearchTimersRef.current).forEach((timerId) => {
+        clearTimeout(timerId);
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncCustomers = async () => {
+      try {
+        const { data } = await api.get("/customers");
+        if (!Array.isArray(data)) return;
+        setCustomers((prev) => {
+          const result = [];
+          const seenMongoIds = new Set();
+          for (const c of data) {
+            const mongoId = String(c._id);
+            seenMongoIds.add(mongoId);
+            const existing = prev.find((e) => e.mongoId === mongoId);
+            if (existing) {
+              result.push({ ...existing, name: c.name, phone: c.phone || "", email: c.email || "" });
+            } else {
+              result.push({ _id: c._id, id: mongoId, mongoId, name: c.name, phone: c.phone || "", email: c.email || "", notes: c.notes || "" });
+            }
+          }
+          for (const e of prev) {
+            if (!e.mongoId && !seenMongoIds.has(e.id)) result.push(e);
+          }
+          return result;
+        });
+      } catch {
+        // silently keep existing ksc_customers data
+      }
+    };
+    syncCustomers();
   }, []);
 
   useEffect(() => {
@@ -182,6 +262,81 @@ function JobCardNew() {
     [customers, currentOwnerId]
   );
 
+  const selectedServiceTypeIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          selectedServices
+            .map((service) => String(service.serviceType || "").trim())
+            .filter(Boolean)
+        ),
+      ],
+    [selectedServices]
+  );
+
+  const selectedServiceSignature = useMemo(
+    () => selectedServiceTypeIds.join(","),
+    [selectedServiceTypeIds]
+  );
+
+  const activeOwnerLocalIdForPreview = useMemo(() => {
+    if (changeOwner && ownerId) {
+      return ownerId;
+    }
+    return currentOwnerId || "";
+  }, [changeOwner, ownerId, currentOwnerId]);
+
+  const previewOwner = useMemo(
+    () =>
+      customers.find((customer) => customer.id === activeOwnerLocalIdForPreview) ||
+      null,
+    [customers, activeOwnerLocalIdForPreview]
+  );
+
+  const previewCustomerMongoId = previewOwner?.mongoId || "";
+
+  const jobCardTasks = useMemo(
+    () =>
+      flattenServiceTasks(selectedServices).map((task) => ({
+        ...task,
+        id: task.taskInstanceId || task.id,
+        selected:
+          task.selected !== undefined
+            ? Boolean(task.selected)
+            : Boolean(task.completed),
+        billable:
+          task.billable !== undefined
+            ? Boolean(task.billable)
+            : task.isBillable !== false,
+        laborHours: roundTaskCurrency(toNonNegativeNumber(task.laborHours)),
+        laborCharge: roundTaskCurrency(toNonNegativeNumber(task.laborCharge)),
+      })),
+    [selectedServices]
+  );
+
+  const laborChargesOriginal = useMemo(
+    () => computeLaborSubtotalFromTasks(jobCardTasks),
+    [jobCardTasks]
+  );
+
+  const pricingPreview = useMemo(
+    () =>
+      computeDraftPricing({
+        partsSubtotal: 0,
+        laborChargesOriginal,
+        appliedRewards,
+      }),
+    [appliedRewards, laborChargesOriginal]
+  );
+
+  useEffect(() => {
+    setAppliedRewards([]);
+    setDraftSuppressedMilestones([]);
+    setLoyaltyPopupRewards([]);
+    setSelectedPopupRewardKey("");
+    setLoyaltyPopupOpen(false);
+  }, [previewCustomerMongoId]);
+
   useEffect(() => {
     if (!selectedVehicle) {
       setChangeOwner(false);
@@ -189,6 +344,11 @@ function JobCardNew() {
       setOwnerSearch("");
       setShowOwnerForm(false);
       setCurrentOwnerLocalId("");
+      setAppliedRewards([]);
+      setDraftSuppressedMilestones([]);
+      setLoyaltyPopupRewards([]);
+      setSelectedPopupRewardKey("");
+      setLoyaltyPopupOpen(false);
       return;
     }
     setChangeOwner(!currentOwnerId);
@@ -198,6 +358,11 @@ function JobCardNew() {
     setNewCustomerName("");
     setNewCustomerPhone("");
     setNewCustomerEmail("");
+    setAppliedRewards([]);
+    setDraftSuppressedMilestones([]);
+    setLoyaltyPopupRewards([]);
+    setSelectedPopupRewardKey("");
+    setLoyaltyPopupOpen(false);
   }, [currentOwnerId, selectedVehicle]);
 
   useEffect(() => {
@@ -252,25 +417,43 @@ function JobCardNew() {
       setServiceTasksDraft([]);
       return;
     }
+    const serviceKey = String(selectedService._id || selectedService.id || "");
     const tasks = Array.isArray(selectedService.tasks)
       ? selectedService.tasks
-          .map((task) => ({
-            title: task.title,
-            isRequired: Boolean(task.isRequired),
-            completed: false,
-          }))
+          .map((task, taskIndex) => {
+            const taskId = task._id || task.id || null;
+            return {
+              taskInstanceId: getTaskInstanceId(
+                serviceKey,
+                {
+                  taskId,
+                  title: task.title,
+                  taskName: task.title,
+                },
+                taskIndex
+              ),
+              taskId,
+              taskName: task.title,
+              title: task.title,
+              isRequired: Boolean(task.isRequired),
+              selected: false,
+              completed: false,
+              laborHours: roundTaskCurrency(
+                toNonNegativeNumber(task.laborHoursDefault)
+              ),
+              laborCharge: roundTaskCurrency(
+                toNonNegativeNumber(task.laborChargeDefault)
+              ),
+              isBillable:
+                task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+              assignedStaffId: null,
+              assignedStaffSnapshot: { employeeNo: "", name: "" },
+            };
+          })
           .filter((task) => task.title)
       : [];
     setServiceTasksDraft(tasks);
   }, [selectedService]);
-
-  const toggleDraftTask = (taskIndex) => {
-    setServiceTasksDraft((prev) =>
-      prev.map((task, index) =>
-        index === taskIndex ? { ...task, completed: !task.completed } : task
-      )
-    );
-  };
 
   const handleAddService = () => {
     if (!selectedService) return;
@@ -283,11 +466,36 @@ function JobCardNew() {
       return;
     }
     const tasks = serviceTasksDraft
-      .map((task) => ({
-        title: task.title,
-        isRequired: Boolean(task.isRequired),
-        completed: Boolean(task.completed),
-      }))
+      .map((task, taskIndex) => {
+        const taskId = task.taskId ? String(task.taskId) : null;
+        return {
+          taskInstanceId: getTaskInstanceId(
+            serviceKey,
+            {
+              taskInstanceId: task.taskInstanceId,
+              taskId,
+              title: task.title,
+              taskName: task.taskName || task.title,
+            },
+            taskIndex
+          ),
+          taskId,
+          taskName: task.taskName || task.title,
+          title: task.title,
+          isRequired: Boolean(task.isRequired),
+          selected: Boolean(task.completed ?? task.selected),
+          completed: Boolean(task.completed),
+          laborHours: roundTaskCurrency(toNonNegativeNumber(task.laborHours)),
+          laborCharge: roundTaskCurrency(toNonNegativeNumber(task.laborCharge)),
+          isBillable:
+            task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+          assignedStaffId: task.assignedStaffId || null,
+          assignedStaffSnapshot: {
+            employeeNo: String(task?.assignedStaffSnapshot?.employeeNo || "").trim(),
+            name: String(task?.assignedStaffSnapshot?.name || "").trim(),
+          },
+        };
+      })
       .filter((task) => task.title);
     setSelectedServices((prev) => [
       ...prev,
@@ -314,8 +522,31 @@ function JobCardNew() {
       prev.map((service) => {
         if (String(service.serviceType) !== String(serviceType)) return service;
         const tasks = (service.tasks || []).map((task, index) =>
-          index === taskIndex ? { ...task, completed: !task.completed } : task
+          index === taskIndex
+            ? {
+                ...task,
+                completed: !task.completed,
+                selected: !task.completed,
+              }
+            : task
         );
+        return { ...service, tasks };
+      })
+    );
+  };
+
+  const updateSelectedTaskLabor = (serviceType, taskIndex, field, value) => {
+    setSelectedServices((prev) =>
+      prev.map((service) => {
+        if (String(service.serviceType) !== String(serviceType)) return service;
+        const tasks = (service.tasks || []).map((task, index) => {
+          if (index !== taskIndex) return task;
+          if (field === "isBillable") {
+            return { ...task, isBillable: Boolean(value) };
+          }
+          const normalizedValue = roundTaskCurrency(toNonNegativeNumber(value));
+          return { ...task, [field]: normalizedValue };
+        });
         return { ...service, tasks };
       })
     );
@@ -332,11 +563,248 @@ function JobCardNew() {
           tasks: tasks.map((task) => ({
             ...task,
             completed: shouldSelectAll,
+            selected: shouldSelectAll,
           })),
         };
       })
     );
   };
+
+  const getTaskRowKey = (serviceType, task, taskIndex) =>
+    getTaskInstanceId(String(serviceType || ""), task, taskIndex);
+
+  const formatStaffOptionLabel = (staff) =>
+    `${String(staff?.employeeNo || "").trim()} - ${String(staff?.name || "").trim()}`;
+
+  const getTaskAssignedLabel = (task) => {
+    const employeeNo = String(task?.assignedStaffSnapshot?.employeeNo || "").trim();
+    const name = String(task?.assignedStaffSnapshot?.name || "").trim();
+    if (!employeeNo && !name) return "";
+    return `${employeeNo} - ${name}`.trim();
+  };
+
+  const updateTaskAssignedStaff = (serviceType, taskIndex, staff) => {
+    setSelectedServices((prev) =>
+      prev.map((service) => {
+        if (String(service.serviceType) !== String(serviceType)) return service;
+        const tasks = (service.tasks || []).map((task, index) => {
+          if (index !== taskIndex) return task;
+          if (!staff) {
+            return {
+              ...task,
+              assignedStaffId: null,
+              assignedStaffSnapshot: { employeeNo: "", name: "" },
+            };
+          }
+          return {
+            ...task,
+            assignedStaffId: staff._id,
+            assignedStaffSnapshot: {
+              employeeNo: staff.employeeNo || "",
+              name: staff.name || "",
+            },
+          };
+        });
+        return { ...service, tasks };
+      })
+    );
+  };
+
+  const queueTaskStaffSearch = (serviceType, taskIndex, rowKey, nextValue) => {
+    setTaskStaffSearchTerms((prev) => ({ ...prev, [rowKey]: nextValue }));
+    const query = String(nextValue || "").trim();
+    const currentOptions = taskStaffSearchResults[rowKey] || [];
+    const exactMatch = currentOptions.find(
+      (staff) => formatStaffOptionLabel(staff).toLowerCase() === query.toLowerCase()
+    );
+    if (exactMatch) {
+      updateTaskAssignedStaff(serviceType, taskIndex, exactMatch);
+    } else if (!query) {
+      updateTaskAssignedStaff(serviceType, taskIndex, null);
+    }
+
+    if (staffSearchTimersRef.current[rowKey]) {
+      clearTimeout(staffSearchTimersRef.current[rowKey]);
+    }
+    if (!query) {
+      setTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: [] }));
+      return;
+    }
+
+    staffSearchTimersRef.current[rowKey] = setTimeout(async () => {
+      try {
+        const { data } = await api.get("/staff/search", { params: { q: query } });
+        const rows = Array.isArray(data) ? data : [];
+        setTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: rows }));
+        const matched = rows.find(
+          (staff) => formatStaffOptionLabel(staff).toLowerCase() === query.toLowerCase()
+        );
+        if (matched) {
+          updateTaskAssignedStaff(serviceType, taskIndex, matched);
+        }
+      } catch (error) {
+        handleAuthRedirect(error.response?.status);
+        setTaskStaffSearchResults((prev) => ({ ...prev, [rowKey]: [] }));
+      }
+    }, 300);
+  };
+
+  const normalizePreviewReward = (reward) => {
+    if (!reward || !reward.ruleId) return null;
+    const milestoneNumber =
+      reward.milestoneNumber === null ||
+      reward.milestoneNumber === undefined ||
+      reward.milestoneNumber === ""
+        ? null
+        : Number(reward.milestoneNumber);
+
+    const normalized = {
+      rewardId: reward.rewardId || reward._id || null,
+      ruleId: String(reward.ruleId),
+      ruleName: reward.ruleName || "Loyalty Reward",
+      rewardType: reward.rewardType || "",
+      rewardValue: Number(reward.rewardValue) || 0,
+      rewardDiscountMode: reward.rewardDiscountMode || null,
+      rewardDiscountValue:
+        reward.rewardDiscountValue !== undefined &&
+        reward.rewardDiscountValue !== null
+          ? Number(reward.rewardDiscountValue)
+          : null,
+      rewardDiscountCap:
+        reward.rewardDiscountCap !== undefined && reward.rewardDiscountCap !== null
+          ? Number(reward.rewardDiscountCap)
+          : null,
+      milestoneNumber:
+        Number.isFinite(milestoneNumber) && milestoneNumber > 0
+          ? milestoneNumber
+          : null,
+      suppressionKey:
+        reward.suppressionKey ||
+        `${String(reward.ruleId)}:${String(
+          Number.isFinite(milestoneNumber) && milestoneNumber > 0
+            ? milestoneNumber
+            : "legacy"
+        )}`,
+    };
+
+    return normalized;
+  };
+
+  const removeAppliedReward = (rewardKey) => {
+    setAppliedRewards((prev) =>
+      prev.filter((reward) => buildRewardKey(reward) !== rewardKey)
+    );
+  };
+
+  const handleApplyLoyaltyRewards = () => {
+    const selectedReward = loyaltyPopupRewards.find(
+      (reward) => reward.suppressionKey === selectedPopupRewardKey
+    );
+    if (!selectedReward) {
+      setLoyaltyPopupOpen(false);
+      setLoyaltyPopupRewards([]);
+      setSelectedPopupRewardKey("");
+      return;
+    }
+
+    setAppliedRewards([
+      {
+        rewardId: selectedReward.rewardId || null,
+        ruleId: selectedReward.ruleId,
+        ruleName: selectedReward.ruleName,
+        rewardType: selectedReward.rewardType,
+        rewardValue: selectedReward.rewardValue,
+        rewardDiscountMode: selectedReward.rewardDiscountMode ?? null,
+        rewardDiscountValue: selectedReward.rewardDiscountValue ?? null,
+        rewardDiscountCap: selectedReward.rewardDiscountCap ?? null,
+        milestoneNumber: selectedReward.milestoneNumber,
+      },
+    ]);
+
+    setDraftSuppressedMilestones((prev) => [
+      ...new Set([
+        ...prev,
+        selectedReward.suppressionKey,
+      ]),
+    ]);
+    setLoyaltyPopupOpen(false);
+    setLoyaltyPopupRewards([]);
+    setSelectedPopupRewardKey("");
+  };
+
+  const handleSkipLoyaltyPopup = () => {
+    setDraftSuppressedMilestones((prev) => [
+      ...new Set([
+        ...prev,
+        ...loyaltyPopupRewards.map((reward) => reward.suppressionKey),
+      ]),
+    ]);
+    setLoyaltyPopupOpen(false);
+    setLoyaltyPopupRewards([]);
+    setSelectedPopupRewardKey("");
+  };
+
+  useEffect(() => {
+    if (!previewCustomerMongoId || !selectedServiceSignature) {
+      setLoyaltyPopupOpen(false);
+      setLoyaltyPopupRewards([]);
+      setSelectedPopupRewardKey("");
+      setLoyaltyPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadLoyaltyPreview = async () => {
+      setLoyaltyPreviewLoading(true);
+      try {
+        const { data } = await api.get(
+          `/loyalty/customer/${previewCustomerMongoId}/job-card-preview`,
+          {
+            params: { serviceTypeIds: selectedServiceSignature },
+          }
+        );
+
+        if (cancelled) return;
+
+        const normalizedRewards = (data?.rewardsAvailable || [])
+          .map(normalizePreviewReward)
+          .filter(Boolean);
+
+        const unappliedRewards = normalizedRewards.filter((reward) => {
+          const key = buildRewardKey(reward);
+          return !appliedRewards.some(
+            (appliedReward) => buildRewardKey(appliedReward) === key
+          );
+        });
+
+        const unsuppressedRewards = unappliedRewards.filter(
+          (reward) => !draftSuppressedMilestones.includes(reward.suppressionKey)
+        );
+
+        if ((data?.shouldShowPopup || false) && unsuppressedRewards.length > 0) {
+          setLoyaltyPopupRewards(unsuppressedRewards);
+          setSelectedPopupRewardKey(unsuppressedRewards[0].suppressionKey);
+          setLoyaltyPopupOpen(true);
+        }
+      } catch (error) {
+        handleAuthRedirect(error.response?.status);
+      } finally {
+        if (!cancelled) {
+          setLoyaltyPreviewLoading(false);
+        }
+      }
+    };
+
+    loadLoyaltyPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    previewCustomerMongoId,
+    selectedServiceSignature,
+    appliedRewards,
+    draftSuppressedMilestones,
+  ]);
 
   const handleAuthRedirect = (status) => {
     if (status === 401 || status === 403) {
@@ -567,6 +1035,7 @@ function JobCardNew() {
       vehicleNumber: vehicle.vehicleNumber,
       brandId: resolvedMaster.brandId,
       modelId: resolvedMaster.modelId,
+      year: vehicle.year,
     });
     const mongoId = data?._id || data?.id;
     if (mongoId) {
@@ -686,6 +1155,7 @@ function JobCardNew() {
         vehicleNumber: newVehicle.vehicleNumber,
         brandId: newVehicle.brandId,
         modelId: newVehicle.modelId,
+        year: newVehicle.year,
       });
       const mongoId = data?._id || data?.id;
       setVehicles((prev) => [
@@ -782,7 +1252,6 @@ function JobCardNew() {
       setOwnerId("");
       setOwnerSearch("");
       setShowOwnerForm(false);
-      setConfirmText("");
     } catch (error) {
       handleAuthRedirect(error.response?.status);
       setSyncError(
@@ -862,23 +1331,66 @@ function JobCardNew() {
       if (!ownerMongoId) {
         throw new Error("Owner sync failed");
       }
-      await ensureVehicleSynced(selectedVehicle, ownerMongoId);
+      const vehicleMongoId = await ensureVehicleSynced(selectedVehicle, ownerMongoId);
       if (changeOwner && resolvedOwnerId !== vehicleOwnerId) {
         await assignOwnerToVehicle(resolvedOwnerId, ownerMongoId);
       }
+      const localJobCardNo = `jc_${Date.now()}`;
+      const createdAtIso = new Date().toISOString();
+      const { data: createdJobCard } = await api.post("/job-cards", {
+        jobCardNo: localJobCardNo,
+        ownerId: ownerMongoId || resolvedOwnerId,
+        customerId: ownerMongoId || resolvedOwnerId,
+        vehicleId: vehicleMongoId || selectedVehicle?.mongoId || vehicleId,
+        services: selectedServices,
+        appliedRewards: appliedRewards.slice(0, 1),
+        laborCharges: pricingPreview.laborChargesOriginal,
+        workNotes: notes.trim(),
+        status: "OPEN",
+        createdAt: createdAtIso,
+      });
+      const mongoId = createdJobCard?._id || createdJobCard?.id;
+      const persistedJobCardNo = createdJobCard?.jobCardNo || localJobCardNo;
       const newJobCard = {
-        id: `jc_${Date.now()}`,
+        id: persistedJobCardNo,
+        mongoId: mongoId || null,
         ownerId: resolvedOwnerId,
         customerId: resolvedOwnerId,
         vehicleId,
-        services: selectedServices,
+        serviceTypeIds:
+          createdJobCard?.serviceTypeIds ||
+          selectedServices.map((service) => String(service?.serviceType || "")).filter(Boolean),
+        services: createdJobCard?.services || selectedServices,
+        appliedRewards:
+          Array.isArray(createdJobCard?.appliedRewards) &&
+          createdJobCard.appliedRewards.length > 0
+            ? [createdJobCard.appliedRewards[0]]
+            : appliedRewards.slice(0, 1),
+        laborCharges:
+          createdJobCard?.laborChargesOriginal ??
+          createdJobCard?.laborCharges ??
+          pricingPreview.laborChargesOriginal,
+        laborChargesOriginal:
+          createdJobCard?.laborChargesOriginal ?? pricingPreview.laborChargesOriginal,
+        loyaltyLaborDiscount:
+          createdJobCard?.loyaltyLaborDiscount ?? pricingPreview.loyaltyLaborDiscount,
+        laborChargesNet:
+          createdJobCard?.laborChargesNet ?? pricingPreview.laborChargesNet,
+        subtotalParts: createdJobCard?.subtotalParts ?? pricingPreview.subtotalParts,
+        grandTotal: createdJobCard?.grandTotal ?? pricingPreview.grandTotal,
         notes: notes.trim(),
-        status: "OPEN",
-        createdAt: new Date().toISOString(),
+        workNotes: createdJobCard?.workNotes ?? notes.trim(),
+        status: createdJobCard?.status || "OPEN",
+        paymentStatus: createdJobCard?.paymentStatus || "UNPAID",
+        createdAt: createdJobCard?.createdAt || createdAtIso,
       };
       const existing = getJobCards();
       saveJobCards([newJobCard, ...existing]);
-      navigate("/job-cards");
+      if (mongoId) {
+        navigate(`/job-cards/${mongoId}/print?autoprint=1`);
+      } else {
+        navigate("/job-cards");
+      }
     } catch (error) {
       handleAuthRedirect(error.response?.status);
       setSyncError(
@@ -893,13 +1405,11 @@ function JobCardNew() {
   const ownerResolved = changeOwner
     ? Boolean(ownerId || (newCustomerName.trim() && newCustomerPhone.trim()))
     : Boolean(currentOwnerId);
-  const confirmReady = changeOwner ? confirmText === "CONFIRM" : true;
   const canSubmit =
     Boolean(
       vehicleId &&
         selectedServices.length > 0 &&
-        ownerResolved &&
-        confirmReady
+        ownerResolved
     ) && !isSyncing;
 
   return (
@@ -1304,29 +1814,15 @@ function JobCardNew() {
                     ) : null}
                   </div>
                 </div>
-                <div className="job-card-confirm">
-                  <div className="job-card-field">
-                    <label htmlFor="job-confirm">Type CONFIRM to proceed</label>
-                    <input
-                      id="job-confirm"
-                      value={confirmText}
-                      onChange={(event) => setConfirmText(event.target.value)}
-                      placeholder="CONFIRM"
-                    />
-                    <p className="job-card-helper">
-                      Case-sensitive: enter exactly <strong>CONFIRM</strong>.
-                    </p>
-                  </div>
-                  <div className="job-card-owner-actions">
-                    <button
-                      type="button"
-                      className="job-card-button job-card-button--primary"
-                      onClick={handleOwnerSave}
-                      disabled={confirmText.trim() !== "CONFIRM"}
-                    >
-                      OK - Save Owner
-                    </button>
-                  </div>
+                <div className="job-card-owner-actions">
+                  <button
+                    type="button"
+                    className="job-card-button job-card-button--primary"
+                    onClick={handleOwnerSave}
+                    disabled={!ownerResolved || isSyncing}
+                  >
+                    OK - Save Owner
+                  </button>
                 </div>
               </div>
             ) : null}
@@ -1342,7 +1838,7 @@ function JobCardNew() {
           </div>
 
           <div className="job-card-service-grid">
-            <div>
+            <div className="job-card-service-grid__services">
               <div className="job-card-service-select">
                 <div className="job-card-field">
                   <label htmlFor="job-service">Service Type</label>
@@ -1437,25 +1933,104 @@ function JobCardNew() {
                         </div>
                       </div>
                       {service.tasks?.length ? (
-                        <div className="job-card-checklist job-card-checklist--tasks">
-                          {service.tasks.map((task, index) => (
-                            <label
-                              key={`${service.serviceType}-${task.title}-${index}`}
-                              className="job-card-checklist__item"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={Boolean(task.completed)}
-                                onChange={() =>
-                                  toggleSelectedTask(service.serviceType, index)
-                                }
-                              />
-                              <span>
-                                {task.title}
-                                {task.isRequired ? " (Required)" : ""}
-                              </span>
-                            </label>
-                          ))}
+                        <div className="job-card-task-table job-card-task-table--new">
+                          <div className="job-card-task-table__head">
+                            <span>Task</span>
+                            <span>Labor Hours</span>
+                            <span>Labor Charge (LKR)</span>
+                            <span>Assigned Staff</span>
+                            <span>Billable</span>
+                          </div>
+                          {service.tasks.map((task, index) => {
+                            const rowKey = getTaskRowKey(service.serviceType, task, index);
+                            const options = taskStaffSearchResults[rowKey] || [];
+                            const staffValue =
+                              taskStaffSearchTerms[rowKey] ?? getTaskAssignedLabel(task);
+                            return (
+                              <div key={rowKey} className="job-card-task-table__row">
+                                <label className="job-card-task-table__task">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(task.completed)}
+                                    onChange={() =>
+                                      toggleSelectedTask(service.serviceType, index)
+                                    }
+                                  />
+                                  <span>
+                                    {task.title}
+                                    {task.isRequired ? " (Required)" : ""}
+                                  </span>
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.25"
+                                  value={task.laborHours ?? 0}
+                                  onChange={(event) =>
+                                    updateSelectedTaskLabor(
+                                      service.serviceType,
+                                      index,
+                                      "laborHours",
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={task.laborCharge ?? 0}
+                                  onChange={(event) =>
+                                    updateSelectedTaskLabor(
+                                      service.serviceType,
+                                      index,
+                                      "laborCharge",
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                                <StaffSearchInput
+                                  value={staffValue}
+                                  options={options}
+                                  placeholder="8071302 - Staff Name"
+                                  onChange={(value) =>
+                                    queueTaskStaffSearch(
+                                      service.serviceType,
+                                      index,
+                                      rowKey,
+                                      value
+                                    )
+                                  }
+                                  onSelect={(staff) => {
+                                    setTaskStaffSearchTerms((prev) => ({
+                                      ...prev,
+                                      [rowKey]: formatStaffOptionLabel(staff),
+                                    }));
+                                    updateTaskAssignedStaff(service.serviceType, index, staff);
+                                    setTaskStaffSearchResults((prev) => ({
+                                      ...prev,
+                                      [rowKey]: [],
+                                    }));
+                                  }}
+                                />
+                                <label className="job-card-task-table__billable">
+                                  <input
+                                    type="checkbox"
+                                    checked={task.isBillable !== false}
+                                    onChange={(event) =>
+                                      updateSelectedTaskLabor(
+                                        service.serviceType,
+                                        index,
+                                        "isBillable",
+                                        event.target.checked
+                                      )
+                                    }
+                                  />
+                                  <span>Yes</span>
+                                </label>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="job-card-muted">
@@ -1466,9 +2041,15 @@ function JobCardNew() {
                   ))}
                 </div>
               )}
+              {selectedServices.length > 0 ? (
+                <div className="job-card-labor-summary">
+                  <span>Labor Charges</span>
+                  <strong>{formatMoney(laborChargesOriginal)}</strong>
+                </div>
+              ) : null}
             </div>
 
-            <div className="job-card-field">
+            <div className="job-card-field job-card-service-grid__notes">
               <label htmlFor="job-notes">Complaints / Notes</label>
               <textarea
                 id="job-notes"
@@ -1478,7 +2059,56 @@ function JobCardNew() {
                 onChange={(event) => setNotes(event.target.value)}
               />
             </div>
+
           </div>
+
+          <div className="job-card-loyalty">
+            <div className="job-card-card__head">
+              <div>
+                <h2>Loyalty Rewards</h2>
+                <p>Milestone rewards eligible for this draft visit.</p>
+              </div>
+            </div>
+
+            {loyaltyPreviewLoading ? (
+              <p className="job-card-muted">Checking loyalty milestones...</p>
+            ) : null}
+            {!previewCustomerMongoId ? (
+              <p className="job-card-muted">
+                Select a synced customer to check loyalty rewards.
+              </p>
+            ) : null}
+            {appliedRewards.length === 0 ? (
+              <p className="job-card-muted">No loyalty rewards selected yet.</p>
+            ) : (
+              <div className="job-card-loyalty__list">
+                {appliedRewards.map((reward) => {
+                  const rewardKey = buildRewardKey(reward);
+                  return (
+                    <div key={rewardKey} className="job-card-loyalty__item">
+                      <div>
+                        <strong>{reward.ruleName || "Loyalty Reward"}</strong>
+                        <p>
+                          {formatRewardSummary(reward)}{" "}
+                          {reward.milestoneNumber
+                            ? `(Milestone ${reward.milestoneNumber})`
+                            : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="job-card-button job-card-button--ghost"
+                        onClick={() => removeAppliedReward(rewardKey)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
         </section>
 
         <div className="job-card-actions">
@@ -1497,6 +2127,69 @@ function JobCardNew() {
             Create Job Card
           </button>
         </div>
+
+        {loyaltyPopupOpen ? (
+          <div className="loyalty-popup">
+            <div className="loyalty-popup__backdrop" />
+            <div className="loyalty-popup__panel" role="dialog" aria-modal="true">
+              <div className="loyalty-popup__head">
+                <h3>Loyalty Reward Available</h3>
+                <p>
+                  This visit hits a loyalty milestone. Select one reward to apply to
+                  this job card.
+                </p>
+              </div>
+              <div className="loyalty-popup__list">
+                {loyaltyPopupRewards.map((reward) => {
+                  const isSelected = selectedPopupRewardKey === reward.suppressionKey;
+                  return (
+                    <label
+                      key={reward.suppressionKey}
+                      className={`loyalty-popup__item ${
+                        isSelected ? "is-selected" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="new-jobcard-loyalty-reward"
+                        checked={isSelected}
+                        onChange={() =>
+                          setSelectedPopupRewardKey(reward.suppressionKey)
+                        }
+                      />
+                      <div>
+                        <strong>{reward.ruleName}</strong>
+                        <p>
+                          {formatRewardSummary(reward)}{" "}
+                          {reward.milestoneNumber
+                            ? `(Milestone ${reward.milestoneNumber})`
+                            : ""}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="loyalty-popup__actions">
+                <button
+                  type="button"
+                  className="job-card-button job-card-button--ghost"
+                  onClick={handleSkipLoyaltyPopup}
+                >
+                  Skip for Now
+                </button>
+                <button
+                  type="button"
+                  className="job-card-button job-card-button--primary"
+                  onClick={handleApplyLoyaltyRewards}
+                  disabled={!selectedPopupRewardKey}
+                >
+                  Apply Reward
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </form>
     </div>
   );

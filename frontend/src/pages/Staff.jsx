@@ -1,219 +1,228 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader.jsx";
 import api from "../services/api.js";
 import "./Workers.css";
 
-const ROLE_TYPES = [
-  { value: "OFFICE", label: "Office" },
-  { value: "TECHNICAL", label: "Technical" },
-];
-
-const ROLE_NAMES = {
-  OFFICE: ["Owner", "Manager", "Cashier", "Receptionist"],
-  TECHNICAL: ["Mechanic", "Technician", "Electrician", "Helper"],
+const EMPTY_FORM = {
+  employeeId: "",
+  fullName: "",
+  NIC: "",
+  address: "",
+  phoneNumber: "",
+  email: "",
+  employeeType: "technical",
+  employmentType: "permanent",
+  departmentId: "",
+  roleId: "",
+  shiftId: "",
+  joinDate: "",
+  status: "active",
+  roleType: "TECHNICAL",
+  roleName: "Technician",
+  salaryType: "FIXED",
+  basicSalary: "",
+  perDayRate: "",
+  commissionPercentage: "",
+  notes: "",
+  documents: [],
 };
 
-const SALARY_TYPES = [
-  { value: "FIXED", label: "Fixed" },
-  { value: "PER_DAY", label: "Per Day" },
-  { value: "COMMISSION", label: "Commission" },
-  { value: "HYBRID", label: "Hybrid (Basic + Commission)" },
-];
-
 function Staff() {
-  const [staff, setStaff] = useState([]);
-  const [fullName, setFullName] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [roleType, setRoleType] = useState("TECHNICAL");
-  const [roleName, setRoleName] = useState("Technician");
-  const [salaryType, setSalaryType] = useState("FIXED");
-  const [basicSalary, setBasicSalary] = useState("");
-  const [commissionPercentage, setCommissionPercentage] = useState("");
-  const [perDayRate, setPerDayRate] = useState("");
-  const [active, setActive] = useState(true);
-  const [notes, setNotes] = useState("");
-  const [idNumber, setIdNumber] = useState("");
+  const [rows, setRows] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [payrollRows, setPayrollRows] = useState([]);
+  const [leaveBalances, setLeaveBalances] = useState([]);
+  const [attendanceRows, setAttendanceRows] = useState([]);
+  const [salaryConfig, setSalaryConfig] = useState(null);
+  const [selectedId, setSelectedId] = useState("");
   const [editingId, setEditingId] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [search, setSearch] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [employmentTypeFilter, setEmploymentTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [detailTab, setDetailTab] = useState("profile");
   const [error, setError] = useState("");
-  const navigate = useNavigate();
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const isFormValid = useMemo(() => {
-    return (
-      fullName.trim() &&
-      phoneNumber.trim() &&
-      roleType &&
-      roleName
-    );
-  }, [fullName, phoneNumber, roleType, roleName]);
-
-  const loadStaff = async () => {
-    setError("");
-    setSuccessMessage("");
-    try {
-      const { data } = await api.get("/staff");
-      setStaff(Array.isArray(data) ? data : []);
-    } catch (error) {
-      if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
-        return;
-      }
-      if (error.response?.status === 403) {
-        navigate("/unauthorized", { replace: true });
-        return;
-      }
-      setError(
-        error.response?.data?.message ||
-          "Unable to load staff right now. Please try again."
-      );
-    }
+  const loadBase = async () => {
+    const [staffRes, roleRes, depRes, shiftRes] = await Promise.all([
+      api.get("/staff"),
+      api.get("/roles"),
+      api.get("/organization/departments"),
+      api.get("/organization/shifts"),
+    ]);
+    setRows(Array.isArray(staffRes.data) ? staffRes.data : []);
+    setRoles(Array.isArray(roleRes.data) ? roleRes.data : []);
+    setDepartments(Array.isArray(depRes.data) ? depRes.data : []);
+    setShifts(Array.isArray(shiftRes.data) ? shiftRes.data : []);
   };
 
   useEffect(() => {
-    loadStaff();
+    const init = async () => {
+      try {
+        await Promise.all([
+          api.post("/roles/seed"),
+          api.post("/organization/departments/seed"),
+          api.post("/organization/shifts/seed"),
+          api.post("/leave-types/seed"),
+          api.post("/settings/seed"),
+        ]);
+      } catch {
+        // no-op
+      }
+      try {
+        await loadBase();
+      } catch (err) {
+        setError(err.response?.data?.message || "Unable to load staff.");
+      }
+    };
+    init();
   }, []);
 
+  useEffect(() => {
+    if (!selectedId) return;
+    const run = async () => {
+      try {
+        const month = new Date().toISOString().slice(0, 7);
+        const [payrollRes, attendanceRes, balanceRes, salaryRes] = await Promise.all([
+          api.get("/payroll", { params: { employeeId: selectedId } }),
+          api.get("/attendance", {
+            params: {
+              month: Number(month.slice(5, 7)),
+              year: Number(month.slice(0, 4)),
+              staffId: selectedId,
+            },
+          }),
+          api.get("/leave-requests/balances", {
+            params: { year: new Date().getFullYear() },
+          }),
+          api.get(`/salary-configs/${selectedId}`),
+        ]);
+        setPayrollRows(Array.isArray(payrollRes.data?.records) ? payrollRes.data.records : []);
+        setAttendanceRows(Array.isArray(attendanceRes.data?.dailyRecords) ? attendanceRes.data.dailyRecords : []);
+        const balances = Array.isArray(balanceRes.data) ? balanceRes.data : [];
+        setLeaveBalances(
+          balances.filter((entry) => String(entry.employeeId?._id || entry.employeeId) === selectedId)
+        );
+        setSalaryConfig(salaryRes.data || null);
+      } catch {
+        // no-op
+      }
+    };
+    run();
+  }, [selectedId]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      if (departmentFilter && String(row.departmentId || "") !== departmentFilter) return false;
+      if (roleFilter && String(row.roleId || "") !== roleFilter) return false;
+      if (employmentTypeFilter && row.employmentType !== employmentTypeFilter) return false;
+      if (statusFilter && row.status !== statusFilter) return false;
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (
+        String(row.fullName || "").toLowerCase().includes(q) ||
+        String(row.employeeId || "").toLowerCase().includes(q) ||
+        String(row.NIC || row.idNumber || "").toLowerCase().includes(q)
+      );
+    });
+  }, [rows, departmentFilter, roleFilter, employmentTypeFilter, statusFilter, search]);
+
+  const selectedEmployee = useMemo(
+    () => rows.find((row) => String(row._id || row.id) === selectedId) || null,
+    [rows, selectedId]
+  );
+
+  const setFormField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
   const resetForm = () => {
-    setFullName("");
-    setPhoneNumber("");
-    setRoleType("TECHNICAL");
-    setRoleName("Technician");
-    setSalaryType("FIXED");
-    setBasicSalary("");
-    setCommissionPercentage("");
-    setPerDayRate("");
-    setActive(true);
-    setNotes("");
-    setIdNumber("");
+    setForm(EMPTY_FORM);
     setEditingId("");
   };
 
-  const parseNumber = (value) => {
-    if (value === "" || value === null || value === undefined) return undefined;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  };
-
-  const handleSubmit = async (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    if (!isFormValid) return;
-    setIsSaving(true);
+    setSaving(true);
     setError("");
-    setSuccessMessage("");
-    const payload = {
-      fullName: fullName.trim(),
-      phoneNumber: phoneNumber.trim(),
-      roleType,
-      roleName,
-      salaryType,
-      basicSalary: parseNumber(basicSalary),
-      commissionPercentage: parseNumber(commissionPercentage),
-      perDayRate: parseNumber(perDayRate),
-      active,
-      idNumber: idNumber.trim() || undefined,
-      notes: notes.trim() || undefined,
-    };
+    setMessage("");
     try {
+      const payload = {
+        ...form,
+        employeeId: String(form.employeeId || "").trim() || undefined,
+        basicSalary: Number(form.basicSalary || 0),
+        perDayRate: Number(form.perDayRate || 0),
+        commissionPercentage: Number(form.commissionPercentage || 0),
+      };
       if (editingId) {
         await api.patch(`/staff/${editingId}`, payload);
-        setSuccessMessage("Staff updated successfully.");
+        setMessage("Employee updated.");
       } else {
         await api.post("/staff", payload);
-        setSuccessMessage("Staff created successfully.");
+        setMessage("Employee added.");
       }
-      await loadStaff();
+      await loadBase();
       resetForm();
-    } catch (error) {
-      if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
-        return;
-      }
-      if (error.response?.status === 403) {
-        navigate("/unauthorized", { replace: true });
-        return;
-      }
-      setError(
-        error.response?.data?.message ||
-          "Unable to save staff details. Please try again."
-      );
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to save employee.");
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
-  const handleEdit = (member) => {
-    setEditingId(member._id || member.id);
-    setFullName(member.fullName || "");
-    setPhoneNumber(member.phoneNumber || "");
-    setRoleType(member.roleType || "TECHNICAL");
-    setRoleName(
-      member.roleName ||
-        (member.roleType === "OFFICE" ? "Manager" : "Technician")
-    );
-    setSalaryType(member.salaryType || "FIXED");
-    setBasicSalary(
-      member.basicSalary !== undefined && member.basicSalary !== null
-        ? String(member.basicSalary)
-        : ""
-    );
-    setCommissionPercentage(
-      member.commissionPercentage !== undefined &&
-        member.commissionPercentage !== null
-        ? String(member.commissionPercentage)
-        : ""
-    );
-    setPerDayRate(
-      member.perDayRate !== undefined && member.perDayRate !== null
-        ? String(member.perDayRate)
-        : ""
-    );
-    setActive(member.active !== undefined ? Boolean(member.active) : true);
-    setNotes(member.notes || "");
-    setIdNumber(member.idNumber || "");
+  const editEmployee = (row) => {
+    setEditingId(String(row._id || row.id));
+    setForm({
+      employeeId: row.employeeId || row.employeeNo || "",
+      fullName: row.fullName || "",
+      NIC: row.NIC || row.idNumber || "",
+      address: row.address || "",
+      phoneNumber: row.phoneNumber || row.phone || "",
+      email: row.email || "",
+      employeeType: row.employeeType || "technical",
+      employmentType: row.employmentType || "permanent",
+      departmentId: row.departmentId || "",
+      roleId: row.roleId || "",
+      shiftId: row.shiftId || "",
+      joinDate: row.joinDate ? String(row.joinDate).slice(0, 10) : "",
+      status: row.status || (row.active === false ? "inactive" : "active"),
+      roleType: row.roleType || "TECHNICAL",
+      roleName: row.roleName || "Technician",
+      salaryType: row.salaryType || "FIXED",
+      basicSalary: row.basicSalary ?? "",
+      perDayRate: row.perDayRate ?? "",
+      commissionPercentage: row.commissionPercentage ?? "",
+      notes: row.notes || "",
+      documents: Array.isArray(row.documents) ? row.documents : [],
+    });
   };
 
-  const handleDelete = async (staffId) => {
-    if (!window.confirm("Delete this staff record?")) return;
-    setIsSaving(true);
-    setError("");
+  const toggleStatus = async (row) => {
+    const id = String(row._id || row.id);
+    const nextStatus = row.status === "inactive" || row.active === false ? "active" : "inactive";
     try {
-      await api.delete(`/staff/${staffId}`);
-      await loadStaff();
-      if (editingId === staffId) {
-        resetForm();
-      }
-    } catch (error) {
-      if (error.response?.status === 401) {
-        navigate("/login", { replace: true });
-        return;
-      }
-      if (error.response?.status === 403) {
-        navigate("/unauthorized", { replace: true });
-        return;
-      }
-      setError(
-        error.response?.data?.message ||
-          "Unable to delete staff. Please try again."
-      );
-    } finally {
-      setIsSaving(false);
+      await api.patch(`/staff/${id}`, {
+        status: nextStatus,
+        active: nextStatus === "active",
+      });
+      await loadBase();
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to toggle status.");
     }
   };
 
-  const roleNameOptions = ROLE_NAMES[roleType] || [];
-
-  const paySummary = (member) => {
-    const typeLabel =
-      SALARY_TYPES.find((option) => option.value === member.salaryType)
-        ?.label || member.salaryType;
-    const parts = [typeLabel || "Fixed"];
-    if (member.basicSalary) parts.push(`Base: ${member.basicSalary}`);
-    if (member.commissionPercentage)
-      parts.push(`Comm: ${member.commissionPercentage}%`);
-    if (member.perDayRate) parts.push(`Per day: ${member.perDayRate}`);
-    return parts.join(" | ");
+  const saveSalaryConfig = async () => {
+    if (!selectedId) return;
+    try {
+      await api.put(`/salary-configs/${selectedId}`, salaryConfig || {});
+      setMessage("Salary configuration saved.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to save salary config.");
+    }
   };
 
   return (
@@ -221,227 +230,347 @@ function Staff() {
       <div className="workers-header">
         <div>
           <PageHeader title="Staff" />
-          <p className="workers-subtitle">
-            Manage staff profiles, roles, and compensation.
-          </p>
+          <p className="workers-subtitle">Employee setup, role assignment, and payroll profile.</p>
         </div>
       </div>
-
       {error ? <p className="workers-error">{error}</p> : null}
-      {successMessage ? (
-        <p className="workers-success">{successMessage}</p>
-      ) : null}
+      {message ? <p className="workers-success">{message}</p> : null}
 
       <section className="workers-card">
         <div className="workers-card__head">
-          <h2>{editingId ? "Edit Staff" : "Add Staff"}</h2>
-          <p>Store role, salary type, and contact details.</p>
+          <h2>{editingId ? "Edit Employee" : "Add Employee"}</h2>
+          <p>Manage employee records without replacing existing data.</p>
         </div>
-        <form className="workers-form" onSubmit={handleSubmit}>
+        <form className="workers-form" onSubmit={submit}>
           <div className="workers-grid">
+            <div className="workers-field"><label>Employee No</label><input value={form.employeeId} onChange={(e) => setFormField("employeeId", e.target.value)} placeholder="e.g. 8071302" /></div>
+            <div className="workers-field"><label>Full Name</label><input value={form.fullName} onChange={(e) => setFormField("fullName", e.target.value)} required /></div>
+            <div className="workers-field"><label>NIC</label><input value={form.NIC} onChange={(e) => setFormField("NIC", e.target.value)} /></div>
+            <div className="workers-field"><label>Address</label><input value={form.address} onChange={(e) => setFormField("address", e.target.value)} /></div>
+            <div className="workers-field"><label>Phone</label><input value={form.phoneNumber} onChange={(e) => setFormField("phoneNumber", e.target.value)} required /></div>
+            <div className="workers-field"><label>Email</label><input value={form.email} onChange={(e) => setFormField("email", e.target.value)} /></div>
             <div className="workers-field">
-              <label htmlFor="staff-name">Full Name</label>
-              <input
-                id="staff-name"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                required
-              />
+              <label>Employee Type</label>
+              <select value={form.employeeType} onChange={(e) => setFormField("employeeType", e.target.value)}>
+                <option value="office">Office</option>
+                <option value="technical">Technical</option>
+              </select>
             </div>
             <div className="workers-field">
-              <label htmlFor="staff-phone">Phone Number</label>
-              <input
-                id="staff-phone"
-                value={phoneNumber}
-                onChange={(event) => setPhoneNumber(event.target.value)}
-                required
-              />
+              <label>Employment Type</label>
+              <select value={form.employmentType} onChange={(e) => setFormField("employmentType", e.target.value)}>
+                <option value="permanent">Permanent</option>
+                <option value="daily-paid">Daily Paid</option>
+                <option value="contract">Contract</option>
+              </select>
             </div>
             <div className="workers-field">
-              <label htmlFor="staff-role-type">Role Type</label>
-              <select
-                id="staff-role-type"
-                value={roleType}
-                onChange={(event) => {
-                  const nextType = event.target.value;
-                  setRoleType(nextType);
-                  const nextRoles = ROLE_NAMES[nextType] || [];
-                  setRoleName(nextRoles[0] || "");
-                }}
-              >
-                {ROLE_TYPES.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+              <label>Department</label>
+              <select value={form.departmentId} onChange={(e) => setFormField("departmentId", e.target.value)}>
+                <option value="">Select</option>
+                {departments.map((entry) => (
+                  <option key={entry._id} value={entry._id}>{entry.name}</option>
                 ))}
               </select>
             </div>
             <div className="workers-field">
-              <label htmlFor="staff-role-name">Role Name</label>
-              <select
-                id="staff-role-name"
-                value={roleName}
-                onChange={(event) => setRoleName(event.target.value)}
-              >
-                {roleNameOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
+              <label>Role</label>
+              <select value={form.roleId} onChange={(e) => setFormField("roleId", e.target.value)}>
+                <option value="">Select</option>
+                {roles.map((entry) => (
+                  <option key={entry._id} value={entry._id}>{entry.roleName}</option>
                 ))}
               </select>
             </div>
             <div className="workers-field">
-              <label htmlFor="staff-salary-type">Salary Type</label>
-              <select
-                id="staff-salary-type"
-                value={salaryType}
-                onChange={(event) => setSalaryType(event.target.value)}
-              >
-                {SALARY_TYPES.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+              <label>Shift</label>
+              <select value={form.shiftId} onChange={(e) => setFormField("shiftId", e.target.value)}>
+                <option value="">Select</option>
+                {shifts.map((entry) => (
+                  <option key={entry._id} value={entry._id}>{entry.name}</option>
                 ))}
               </select>
             </div>
-            {["FIXED", "HYBRID"].includes(salaryType) ? (
-              <div className="workers-field">
-                <label htmlFor="staff-basic-salary">Base Salary</label>
-                <input
-                  id="staff-basic-salary"
-                  type="number"
-                  min="0"
-                  value={basicSalary}
-                  onChange={(event) => setBasicSalary(event.target.value)}
-                />
-              </div>
-            ) : null}
-            {["COMMISSION", "HYBRID"].includes(salaryType) ? (
-              <div className="workers-field">
-                <label htmlFor="staff-commission">Commission %</label>
-                <input
-                  id="staff-commission"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={commissionPercentage}
-                  onChange={(event) =>
-                    setCommissionPercentage(event.target.value)
-                  }
-                />
-              </div>
-            ) : null}
-            {salaryType === "PER_DAY" ? (
-              <div className="workers-field">
-                <label htmlFor="staff-per-day">Per Day Rate</label>
-                <input
-                  id="staff-per-day"
-                  type="number"
-                  min="0"
-                  value={perDayRate}
-                  onChange={(event) => setPerDayRate(event.target.value)}
-                />
-              </div>
-            ) : null}
             <div className="workers-field">
-              <label htmlFor="staff-id-number">ID Number</label>
-              <input
-                id="staff-id-number"
-                value={idNumber}
-                onChange={(event) => setIdNumber(event.target.value)}
-                placeholder="NIC / ID card number"
-              />
+              <label>Join Date</label>
+              <input type="date" value={form.joinDate} onChange={(e) => setFormField("joinDate", e.target.value)} />
             </div>
+            <div className="workers-field">
+              <label>Status</label>
+              <select value={form.status} onChange={(e) => setFormField("status", e.target.value)}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+            <div className="workers-field">
+              <label>Salary Type</label>
+              <select value={form.salaryType} onChange={(e) => setFormField("salaryType", e.target.value)}>
+                <option value="FIXED">Fixed</option>
+                <option value="PER_DAY">Per Day</option>
+                <option value="COMMISSION">Commission</option>
+                <option value="HYBRID">Hybrid</option>
+              </select>
+            </div>
+            <div className="workers-field"><label>Basic Salary</label><input type="number" min="0" value={form.basicSalary} onChange={(e) => setFormField("basicSalary", e.target.value)} /></div>
+            <div className="workers-field"><label>Daily Rate</label><input type="number" min="0" value={form.perDayRate} onChange={(e) => setFormField("perDayRate", e.target.value)} /></div>
+            <div className="workers-field"><label>Commission %</label><input type="number" min="0" max="100" value={form.commissionPercentage} onChange={(e) => setFormField("commissionPercentage", e.target.value)} /></div>
             <div className="workers-field workers-field--notes">
-              <label htmlFor="staff-notes">Notes</label>
+              <label>Documents (URL list)</label>
               <textarea
-                id="staff-notes"
-                rows="3"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Optional internal notes."
+                rows={2}
+                value={(form.documents || []).map((d) => `${d.type}|${d.name}|${d.url}`).join("\n")}
+                onChange={(e) =>
+                  setFormField(
+                    "documents",
+                    e.target.value
+                      .split("\n")
+                      .map((line) => line.trim())
+                      .filter(Boolean)
+                      .map((line) => {
+                        const [type, name, url] = line.split("|");
+                        return {
+                          type: type || "certificate",
+                          name: name || "Document",
+                          url: url || "",
+                          uploadedAt: new Date().toISOString(),
+                        };
+                      })
+                  )
+                }
+                placeholder="type|name|url"
               />
             </div>
-            <label className="workers-toggle">
-              <input
-                type="checkbox"
-                checked={active}
-                onChange={(event) => setActive(event.target.checked)}
-              />
-              Active
-            </label>
+            <div className="workers-field workers-field--notes"><label>Notes</label><textarea rows={3} value={form.notes} onChange={(e) => setFormField("notes", e.target.value)} /></div>
           </div>
-
           <div className="workers-actions">
-            {editingId ? (
-              <button type="button" onClick={resetForm}>
-                Cancel
-              </button>
-            ) : null}
-            <button type="submit" disabled={!isFormValid || isSaving}>
-              {editingId ? "Save Changes" : "Create Staff"}
-            </button>
+            {editingId ? <button type="button" onClick={resetForm}>Cancel</button> : null}
+            <button type="submit" disabled={saving}>{editingId ? "Save Changes" : "Add Employee"}</button>
           </div>
         </form>
       </section>
 
       <section className="workers-card">
         <div className="workers-card__head">
-          <h2>Staff Directory</h2>
-          <p>Activate, edit, or disable staff from here.</p>
+          <h2>Employee Directory</h2>
+          <p>Search and filter by department, role, employment, and status.</p>
         </div>
-        {staff.length === 0 ? (
-          <p className="workers-empty">No staff added yet.</p>
-        ) : (
-          <div className="workers-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th>Role Type</th>
-                  <th>Role Name</th>
-                  <th>Pay Plan</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {staff.map((member) => (
-                  <tr key={member._id || member.id}>
-                    <td>{member.fullName}</td>
-                    <td>{member.phoneNumber}</td>
-                    <td>{member.roleType || "TECHNICAL"}</td>
-                    <td>{member.roleName || "-"}</td>
-                    <td>{paySummary(member)}</td>
-                    <td>
-                      <span
-                        className={`workers-status ${
-                          member.active ? "" : "workers-status--inactive"
-                        }`}
-                      >
-                        {member.active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td className="workers-actions-cell">
-                      <button type="button" onClick={() => handleEdit(member)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="workers-danger"
-                        onClick={() => handleDelete(member._id || member.id)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="workers-grid">
+          <div className="workers-field"><label>Search</label><input value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+          <div className="workers-field">
+            <label>Department</label>
+            <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+              <option value="">All</option>
+              {departments.map((d) => <option value={d._id} key={d._id}>{d.name}</option>)}
+            </select>
           </div>
-        )}
+          <div className="workers-field">
+            <label>Role</label>
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+              <option value="">All</option>
+              {roles.map((r) => <option value={r._id} key={r._id}>{r.roleName}</option>)}
+            </select>
+          </div>
+          <div className="workers-field">
+            <label>Employment Type</label>
+            <select value={employmentTypeFilter} onChange={(e) => setEmploymentTypeFilter(e.target.value)}>
+              <option value="">All</option>
+              <option value="permanent">Permanent</option>
+              <option value="daily-paid">Daily Paid</option>
+              <option value="contract">Contract</option>
+            </select>
+          </div>
+          <div className="workers-field">
+            <label>Status</label>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div className="workers-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Department</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.map((row) => (
+                <tr key={row._id || row.id}>
+                  <td>{row.fullName}</td>
+                  <td>{row.roleName || "-"}</td>
+                  <td>{departments.find((d) => String(d._id) === String(row.departmentId))?.name || "-"}</td>
+                  <td>{row.employmentType || "-"}</td>
+                  <td>{row.status || (row.active === false ? "inactive" : "active")}</td>
+                  <td className="workers-actions-cell">
+                    <button type="button" onClick={() => editEmployee(row)}>Edit</button>
+                    <button type="button" onClick={() => setSelectedId(String(row._id || row.id))}>View</button>
+                    <button type="button" onClick={() => toggleStatus(row)}>Toggle Status</button>
+                  </td>
+                </tr>
+              ))}
+              {filteredRows.length === 0 ? (
+                <tr><td colSpan={6}>No employees found.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </section>
+
+      {selectedEmployee ? (
+        <section className="workers-card">
+          <div className="workers-card__head">
+            <h2>Employee Detail: {selectedEmployee.fullName}</h2>
+            <p>ID: {selectedEmployee.employeeId || selectedEmployee._id}</p>
+          </div>
+          <div className="workers-actions-cell">
+            <button type="button" onClick={() => setDetailTab("profile")}>Profile</button>
+            <button type="button" onClick={() => setDetailTab("documents")}>Documents</button>
+            <button type="button" onClick={() => setDetailTab("attendance")}>Attendance Summary</button>
+            <button type="button" onClick={() => setDetailTab("leave")}>Leave Balance</button>
+            <button type="button" onClick={() => setDetailTab("payroll")}>Payroll History</button>
+            <button type="button" onClick={() => setDetailTab("salary")}>Salary</button>
+          </div>
+          {detailTab === "profile" ? (
+            <div className="workers-grid">
+              <div className="workers-field"><label>NIC</label><input value={selectedEmployee.NIC || ""} readOnly /></div>
+              <div className="workers-field"><label>Email</label><input value={selectedEmployee.email || ""} readOnly /></div>
+              <div className="workers-field"><label>Phone</label><input value={selectedEmployee.phoneNumber || ""} readOnly /></div>
+              <div className="workers-field"><label>Address</label><input value={selectedEmployee.address || ""} readOnly /></div>
+            </div>
+          ) : null}
+          {detailTab === "documents" ? (
+            <div className="workers-table">
+              <table>
+                <thead><tr><th>Type</th><th>Name</th><th>URL</th><th>Uploaded</th></tr></thead>
+                <tbody>
+                  {(selectedEmployee.documents || []).map((doc, index) => (
+                    <tr key={index}>
+                      <td>{doc.type}</td>
+                      <td>{doc.name}</td>
+                      <td><a href={doc.url} target="_blank" rel="noreferrer">Open</a></td>
+                      <td>{doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "-"}</td>
+                    </tr>
+                  ))}
+                  {(selectedEmployee.documents || []).length === 0 ? (
+                    <tr><td colSpan={4}>No documents uploaded.</td></tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {detailTab === "attendance" ? (
+            <div className="workers-table">
+              <table>
+                <thead><tr><th>Date</th><th>Status</th><th>Check In</th><th>Check Out</th><th>Notes</th></tr></thead>
+                <tbody>
+                  {attendanceRows.map((entry) => (
+                    <tr key={entry._id}>
+                      <td>{entry.date}</td>
+                      <td>{entry.status}</td>
+                      <td>{entry.checkInTime || "-"}</td>
+                      <td>{entry.checkOutTime || "-"}</td>
+                      <td>{entry.notes || "-"}</td>
+                    </tr>
+                  ))}
+                  {attendanceRows.length === 0 ? <tr><td colSpan={5}>No records.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {detailTab === "leave" ? (
+            <div className="workers-table">
+              <table>
+                <thead><tr><th>Leave Type</th><th>Allocated</th><th>Used</th><th>Remaining</th></tr></thead>
+                <tbody>
+                  {leaveBalances.map((entry) => (
+                    <tr key={entry._id}>
+                      <td>{entry.leaveTypeId?.name || "-"}</td>
+                      <td>{entry.allocated}</td>
+                      <td>{entry.used}</td>
+                      <td>{entry.remaining}</td>
+                    </tr>
+                  ))}
+                  {leaveBalances.length === 0 ? <tr><td colSpan={4}>No leave balances.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {detailTab === "payroll" ? (
+            <div className="workers-table">
+              <table>
+                <thead><tr><th>Month</th><th>Status</th><th>Net</th><th>Generated</th></tr></thead>
+                <tbody>
+                  {payrollRows.map((entry) => (
+                    <tr key={entry._id}>
+                      <td>{entry.month}</td>
+                      <td>{entry.status}</td>
+                      <td>{Number(entry.netSalary || 0).toFixed(2)}</td>
+                      <td>{entry.generatedAt ? new Date(entry.generatedAt).toLocaleString() : "-"}</td>
+                    </tr>
+                  ))}
+                  {payrollRows.length === 0 ? <tr><td colSpan={4}>No payroll records.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {detailTab === "salary" ? (
+            <div>
+              <div className="workers-grid">
+                <div className="workers-field">
+                  <label>Salary Model</label>
+                  <select
+                    value={salaryConfig?.salaryModel || "fixed"}
+                    onChange={(e) =>
+                      setSalaryConfig((prev) => ({ ...(prev || {}), salaryModel: e.target.value }))
+                    }
+                  >
+                    <option value="fixed">Fixed</option>
+                    <option value="daily">Daily</option>
+                  </select>
+                </div>
+                <div className="workers-field">
+                  <label>Basic Salary</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={salaryConfig?.basicSalary || 0}
+                    onChange={(e) =>
+                      setSalaryConfig((prev) => ({
+                        ...(prev || {}),
+                        basicSalary: Number(e.target.value || 0),
+                      }))
+                    }
+                  />
+                </div>
+                <div className="workers-field">
+                  <label>Daily Rate</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={salaryConfig?.dailyRate || 0}
+                    onChange={(e) =>
+                      setSalaryConfig((prev) => ({
+                        ...(prev || {}),
+                        dailyRate: Number(e.target.value || 0),
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="workers-actions">
+                <button type="button" onClick={saveSalaryConfig}>Save Salary Configuration</button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }

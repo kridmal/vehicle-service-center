@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+ï»¿import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../services/api.js";
 import { useLocalStorageState } from "../../hooks/useLocalStorageState.js";
@@ -7,7 +7,6 @@ import "./DashboardPage.css";
 function DashboardPage() {
   const [invoices] = useLocalStorageState("ksc_invoices", []);
   const [jobCards] = useLocalStorageState("ksc_job_cards", []);
-  const [inventory] = useLocalStorageState("ksc_inventory", []);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState(false);
@@ -49,22 +48,21 @@ function DashboardPage() {
     { OPEN: 0, IN_PROGRESS: 0, COMPLETED: 0 }
   );
 
-  const lowStockItems = inventory
-    .filter((item) => Number(item.quantity) <= Number(item.minStock))
-    .sort((a, b) => Number(a.quantity) - Number(b.quantity))
-    .slice(0, 5);
+  const lowStockItems = Array.isArray(summary?.lowStockItems)
+    ? summary.lowStockItems
+    : [];
 
   const formatKpi = (value) => {
-    if (summaryError) return "—";
+    if (summaryError) return "-";
     if (summaryLoading) return null;
-    if (value === null || value === undefined) return "—";
+    if (value === null || value === undefined) return "-";
     return Number(value).toLocaleString("en-US");
   };
 
   const formatCount = (value) => {
-    if (summaryError) return "—";
-    if (summaryLoading) return "—";
-    if (value === null || value === undefined) return "—";
+    if (summaryError) return "-";
+    if (summaryLoading) return "-";
+    if (value === null || value === undefined) return "-";
     return Number(value).toLocaleString("en-US");
   };
 
@@ -138,6 +136,43 @@ function DashboardPage() {
             </p>
             <p className="kpi-meta">Open + In progress</p>
           </div>
+          <div className="kpi-card">
+            <p className="kpi-label">Attendance Today</p>
+            <p className="kpi-value">
+              {summaryLoading ? (
+                <span className="kpi-skeleton" />
+              ) : (
+                `${formatCount(summary?.todayAttendance?.present)} / ${formatCount(
+                  summary?.todayAttendance?.absent
+                )}`
+              )}
+            </p>
+            <p className="kpi-meta">Present / Absent</p>
+          </div>
+          <div className="kpi-card">
+            <p className="kpi-label">Pending Leave Requests</p>
+            <p className="kpi-value">
+              {summaryLoading ? (
+                <span className="kpi-skeleton" />
+              ) : (
+                formatCount(summary?.pendingLeaveRequests)
+              )}
+            </p>
+            <p className="kpi-meta">Awaiting review</p>
+          </div>
+          <div className="kpi-card">
+            <p className="kpi-label">Current Payroll</p>
+            <p className="kpi-value">
+              {summaryLoading ? (
+                <span className="kpi-skeleton" />
+              ) : (
+                Object.entries(summary?.payrollCurrentMonthStatus || {})
+                  .map(([status, count]) => `${status}:${count}`)
+                  .join(" | ") || "No run"
+              )}
+            </p>
+            <p className="kpi-meta">Monthly status mix</p>
+          </div>
         </div>
       </section>
 
@@ -187,17 +222,24 @@ function DashboardPage() {
             <h2>Low Stock</h2>
             <span className="summary-pill warning">Attention</span>
           </div>
-          {lowStockItems.length === 0 ? (
+          {summaryLoading ? (
+            <div className="low-stock__ok">Loading stock alerts...</div>
+          ) : summaryError ? (
+            <div className="low-stock__ok">Unable to load stock alerts</div>
+          ) : lowStockItems.length === 0 ? (
             <div className="low-stock__ok">All items in stock</div>
           ) : (
             <ul className="low-stock__list">
               {lowStockItems.map((item) => (
-                <li className="low-stock__item" key={item.id}>
+                <li
+                  className="low-stock__item"
+                  key={item._id || item.id || item.sku || item.itemName}
+                >
                   <div>
-                    <p className="low-stock__name">
-                      {item.itemName || item.name}
+                    <p className="low-stock__name">{item.itemName || item.name}</p>
+                    <p className="low-stock__meta">
+                      Min {item.minStock || 0} {item.unit} | Remaining {item.quantity || 0} {item.unit}
                     </p>
-                    <p className="low-stock__meta">{item.unit} remaining</p>
                   </div>
                   <span className="low-stock__qty">{item.quantity}</span>
                 </li>

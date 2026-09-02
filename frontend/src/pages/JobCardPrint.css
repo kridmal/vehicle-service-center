@@ -1,0 +1,319 @@
+.job-card-print-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.job-card-print-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.job-card-print-controls p {
+  margin: 6px 0 0;
+  color: #475569;
+  font-size: 13px;
+}
+
+.job-card-print-controls__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.job-card-print-controls__actions button,
+.job-card-print-controls__actions a {
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 9px 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.job-card-print-loading {
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+}
+
+.job-card-print-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+/* ── Print sheet container ── */
+.job-card-print-sheet {
+  width: min(100%, 210mm);
+  margin: 0 auto;
+  padding: 14px;
+  border: 1px solid #d6d9df;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #111827;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Company header — full-width strip ── */
+.job-card-print-header {
+  border-bottom: 2px solid #111827;
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.job-card-print-header h1 {
+  margin: 0 0 2px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.job-card-print-header p {
+  margin: 0;
+  font-size: 11px;
+  color: #374151;
+}
+
+/* ── Row grid layouts ── */
+.job-card-print-row3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.job-card-print-row2 {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 6px;
+}
+
+/* ── Section boxes ── */
+.job-card-print-section {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: #ffffff;
+}
+
+.job-card-print-section h3 {
+  margin: 0 0 5px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #1f2937;
+}
+
+/* ── Key-value pairs inside sections ── */
+.job-card-print-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.job-card-print-kv > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.job-card-print-kv span {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.job-card-print-kv strong {
+  font-size: 11px;
+  font-weight: 600;
+  color: #111827;
+}
+
+/* ── Service type list ── */
+.job-card-print-service-list {
+  margin: 0;
+  padding-left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.job-card-print-muted {
+  margin: 0;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+/* ── Customer requests note area ── */
+.job-card-print-note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #111827;
+  min-height: 20px;
+}
+
+/* ── Tables ── */
+.job-card-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.job-card-print-table th,
+.job-card-print-table td {
+  border: 1px solid #9ca3af;
+  padding: 5px 6px;
+  font-size: 11px;
+  vertical-align: top;
+}
+
+.job-card-print-table th {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 9px;
+  font-weight: 700;
+  background: #f3f4f6;
+}
+
+/* task table: 4 columns */
+.job-card-print-table--tasks th:nth-child(1) { width: 46%; }
+.job-card-print-table--tasks th:nth-child(2) { width: 28%; }
+.job-card-print-table--tasks th:nth-child(3) { width: 10%; }
+.job-card-print-table--tasks th:nth-child(4) { width: 16%; }
+
+.job-card-print-table__num {
+  text-align: right;
+}
+
+/* ── Blank write space after task rows ── */
+.job-card-print-write-space {
+  min-height: 88px;
+  border-top: 1px dashed #d1d5db;
+  margin-top: 4px;
+}
+
+/* ── Signatures section (inside row2 right column) ── */
+.job-card-print-signatures {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.job-card-print-signature {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.job-card-print-signature__line {
+  height: 38px;
+  border: 1px solid #111827;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.job-card-print-signature span {
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  color: #374151;
+}
+
+.job-card-print-terms {
+  margin: 0;
+  font-size: 10px;
+  color: #6b7280;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .job-card-print-controls {
+    flex-direction: column;
+  }
+
+  .job-card-print-row3,
+  .job-card-print-row2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .job-card-print-sheet {
+    padding: 10px;
+  }
+}
+
+/* ── Print styles ── */
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  .no-print,
+  .sidebar,
+  .app-sidebar,
+  .app-topbar,
+  .topbar__title,
+  .topbar__actions,
+  .navbar,
+  nav {
+    display: none !important;
+  }
+
+  .job-card-print-page {
+    padding: 0;
+    background: #ffffff;
+  }
+
+  .job-card-print-sheet {
+    width: auto;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .job-card-print-section,
+  .job-card-print-signature__line,
+  .job-card-print-table th,
+  .job-card-print-table td {
+    border-color: #000000;
+  }
+
+  .job-card-print-header {
+    border-bottom-color: #000000;
+  }
+
+  .job-card-print-write-space {
+    border-top-color: #000000;
+  }
+
+  .job-card-print-table tr,
+  .job-card-print-table td,
+  .job-card-print-table th {
+    page-break-inside: avoid;
+  }
+}

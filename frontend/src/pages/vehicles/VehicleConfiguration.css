@@ -202,7 +202,7 @@
   color: #b91c1c;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .vehicle-config-tabs {
     width: 100%;
     justify-content: space-between;
@@ -210,5 +210,20 @@
 
   .vehicle-config-actions {
     flex-direction: column;
+  }
+
+  .vehicle-config-card {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .vehicle-config-card {
+    padding: 14px;
+  }
+
+  .vehicle-config-toolbar {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

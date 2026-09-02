@@ -8,7 +8,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import "./Vehicles.css";
 
 function Vehicles() {
-  const [customers] = useLocalStorageState("ksc_customers", []);
+  const [customers, setCustomers] = useLocalStorageState("ksc_customers", []);
   const [vehicles, setVehicles] = useLocalStorageState("ksc_vehicles", []);
   const [customerId, setCustomerId] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
@@ -56,6 +56,96 @@ function Vehicles() {
       }
     };
     loadBrands();
+  }, [navigate]);
+
+  useEffect(() => {
+    const syncCustomers = async () => {
+      try {
+        const { data } = await api.get("/customers");
+        if (!Array.isArray(data)) return;
+        setCustomers((prev) => {
+          const result = [];
+          const seenMongoIds = new Set();
+          for (const c of data) {
+            const mongoId = String(c._id);
+            seenMongoIds.add(mongoId);
+            const existing = prev.find((e) => e.mongoId === mongoId);
+            if (existing) {
+              result.push({ ...existing, name: c.name, phone: c.phone || "", email: c.email || "" });
+            } else {
+              result.push({ _id: c._id, id: mongoId, mongoId, name: c.name, phone: c.phone || "", email: c.email || "", notes: c.notes || "" });
+            }
+          }
+          for (const e of prev) {
+            if (!e.mongoId && !seenMongoIds.has(e.id)) result.push(e);
+          }
+          return result;
+        });
+      } catch {
+        // silently keep existing ksc_customers data
+      }
+    };
+    syncCustomers();
+  }, []);
+
+  useEffect(() => {
+    const loadVehicles = async () => {
+      try {
+        const { data } = await api.get("/vehicles");
+        if (!Array.isArray(data)) return;
+        setVehicles((prev) => {
+          const result = [];
+          const matchedLocalIds = new Set();
+          for (const v of data) {
+            const mongoId = v._id;
+            const local = prev.find(
+              (e) =>
+                e.mongoId === mongoId ||
+                e.vehicleNumber?.toLowerCase() ===
+                  v.vehicleNumber?.toLowerCase()
+            );
+            if (local) {
+              matchedLocalIds.add(local.id);
+              result.push({
+                ...local,
+                mongoId,
+                vehicleNumber: v.vehicleNumber,
+                brandId: v.brandId,
+                brandName: v.brandName,
+                modelId: v.modelId,
+                modelName: v.modelName,
+              });
+            } else {
+              result.push({
+                id: mongoId,
+                mongoId,
+                customerId: v.customerId,
+                currentOwnerId: v.currentOwnerId,
+                vehicleNumber: v.vehicleNumber,
+                brandId: v.brandId,
+                brandName: v.brandName,
+                modelId: v.modelId,
+                modelName: v.modelName,
+                year: v.year || "",
+              });
+            }
+          }
+          for (const e of prev) {
+            if (!matchedLocalIds.has(e.id) && !e.mongoId) {
+              result.push(e);
+            }
+          }
+          return result;
+        });
+      } catch (error) {
+        if (error.response?.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError("Unable to load vehicles.");
+      }
+    };
+    loadVehicles();
   }, [navigate]);
 
   useEffect(() => {
@@ -151,12 +241,14 @@ function Vehicles() {
     if (editingId) {
       const existing = vehicles.find((entry) => entry.id === editingId);
       if (existing?.mongoId) {
+        const customerEntry = customers.find((c) => c.id === payload.customerId);
         api
           .patch(`/vehicles/${existing.mongoId}`, {
-            customerId: payload.customerId,
+            customerId: customerEntry?.mongoId || payload.customerId,
             vehicleNumber: payload.vehicleNumber,
             brandId: payload.brandId,
             modelId: payload.modelId,
+            year: payload.year,
           })
           .catch(() => {
             setError("Unable to sync vehicle changes right now.");
@@ -173,6 +265,32 @@ function Vehicles() {
         ...payload,
       };
       setVehicles((prev) => [newVehicle, ...prev]);
+      const customerEntry = customers.find((c) => c.id === customerId);
+      if (customerEntry?.mongoId) {
+        api
+          .post("/vehicles", {
+            customerId: customerEntry.mongoId,
+            vehicleNumber: payload.vehicleNumber,
+            brandId: payload.brandId,
+            modelId: payload.modelId,
+            year: payload.year,
+          })
+          .then(({ data }) => {
+            const mongoId = data?._id || data?.id;
+            if (mongoId) {
+              setVehicles((prev) =>
+                prev.map((entry) =>
+                  entry.id === newVehicle.id
+                    ? { ...entry, mongoId }
+                    : entry
+                )
+              );
+            }
+          })
+          .catch(() => {
+            setError("Vehicle saved locally. Unable to sync to server.");
+          });
+      }
     }
     setVehicleNumber("");
     setBrandSearch("");

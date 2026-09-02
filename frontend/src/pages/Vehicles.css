@@ -247,3 +247,22 @@ tbody td {
     width: 100%;
   }
 }
+
+@media (max-width: 768px) {
+  .vehicles-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .vehicles-card {
+    padding: 14px;
+  }
+
+  .vehicles-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}

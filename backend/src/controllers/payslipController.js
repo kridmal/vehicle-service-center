@@ -64,6 +64,7 @@ export const createPayslip = async (req, res, next) => {
       staffId,
       month: normalizedMonth,
       year: normalizedYear,
+      date: { $exists: false },
     });
     const attendanceRequired = ["FIXED", "PER_DAY", "HYBRID"].includes(
       String(staff.salaryType || "").toUpperCase()

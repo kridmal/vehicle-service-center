@@ -1,49 +1,100 @@
 import express from "express";
 import cors from "cors";
+import advanceRoutes from "./routes/advanceRoutes.js";
+import auditRoutes from "./routes/auditRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
 import customerRoutes from "./routes/customerRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import dealerRoutes from "./routes/dealerRoutes.js";
+import departmentRoutes from "./routes/departmentRoutes.js";
 import inventoryCategoryRoutes from "./routes/inventoryCategoryRoutes.js";
 import inventoryRoutes from "./routes/inventoryRoutes.js";
 import invoiceRoutes from "./routes/invoiceRoutes.js";
 import jobCardRoutes from "./routes/jobCardRoutes.js";
 import leaveRequestRoutes from "./routes/leaveRequestRoutes.js";
 import leaveTypeRoutes from "./routes/leaveTypeRoutes.js";
+import loyaltyRoutes from "./routes/loyaltyRoutes.js";
+import organizationRoutes from "./routes/organizationRoutes.js";
+import payrollRoutes from "./routes/payrollRoutes.js";
 import payslipRoutes from "./routes/payslipRoutes.js";
+import purchaseRoutes from "./routes/purchaseRoutes.js";
+import purchaseRequestRoutes from "./routes/purchaseRequestRoutes.js";
+import roleRoutes from "./routes/roleRoutes.js";
 import reportsRoutes from "./routes/reportsRoutes.js";
+import salaryConfigRoutes from "./routes/salaryConfigRoutes.js";
+import salesRoutes from "./routes/salesRoutes.js";
 import serviceTypeRoutes from "./routes/serviceTypeRoutes.js";
+import settingsRoutes from "./routes/settingsRoutes.js";
+import shiftRoutes from "./routes/shiftRoutes.js";
 import staffRoutes from "./routes/staffRoutes.js";
 import vehicleMasterRoutes from "./routes/vehicleMasterRoutes.js";
 import vehicleRoutes from "./routes/vehicleRoutes.js";
+import workCalendarRoutes from "./routes/workCalendarRoutes.js";
+import workCalendarDayRoutes from "./routes/workCalendarDayRoutes.js";
+import workLogRoutes from "./routes/workLogRoutes.js";
 import workerRoutes from "./routes/workerRoutes.js";
 import { errorHandler, notFound } from "./middlewares/errorMiddleware.js";
 
 const app = express();
 
-app.use(cors());
+const devOrigins = ["http://localhost:5173", "http://localhost:4173"];
+const prodOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(",").map((o) => o.trim()).filter(Boolean)
+  : [];
+const allowedOrigins = new Set([...devOrigins, ...prodOrigins]);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      }
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.json({ message: "Kaluarachchi SC API running" });
+  res.json({ message: "Senavi Auto Care API running" });
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/advances", advanceRoutes);
+app.use("/api/audit-logs", auditRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/customers", customerRoutes);
+app.use("/api/dealers", dealerRoutes);
+app.use("/api/departments", departmentRoutes);
 app.use("/api/inventory-categories", inventoryCategoryRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/job-cards", jobCardRoutes);
 app.use("/api/leave-requests", leaveRequestRoutes);
 app.use("/api/leave-types", leaveTypeRoutes);
+app.use("/api/loyalty", loyaltyRoutes);
+app.use("/api/organization", organizationRoutes);
+app.use("/api/payroll", payrollRoutes);
 app.use("/api/payslips", payslipRoutes);
+app.use("/api/purchases", purchaseRoutes);
+app.use("/api/purchase-requests", purchaseRequestRoutes);
+app.use("/api/roles", roleRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/salary-configs", salaryConfigRoutes);
+app.use("/api/sales", salesRoutes);
 app.use("/api/services", serviceTypeRoutes);
+app.use("/api/settings", settingsRoutes);
+app.use("/api/shifts", shiftRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/vehicle-master", vehicleMasterRoutes);
 app.use("/api/vehicles", vehicleRoutes);
+app.use("/api/work-calendars", workCalendarRoutes);
+app.use("/api/work-calendar", workCalendarDayRoutes);
+app.use("/api/worklogs", workLogRoutes);
 app.use("/api/workers", workerRoutes);
 
 app.use(notFound);

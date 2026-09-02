@@ -4,10 +4,28 @@ import PageHeader from "../components/PageHeader.jsx";
 import api from "../services/api.js";
 import "./Services.css";
 
+const roundToCurrency = (value) =>
+  Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+const toValidCurrency = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return roundToCurrency(parsed);
+};
+
+const createTaskDraft = () => ({
+  _id: "",
+  title: "",
+  isRequired: false,
+  laborHoursDefault: "0",
+  laborChargeDefault: "0",
+  isBillable: true,
+});
+
 function Services() {
   const [services, setServices] = useState([]);
   const [name, setName] = useState("");
-  const [tasks, setTasks] = useState([{ title: "", isRequired: false }]);
+  const [tasks, setTasks] = useState([createTaskDraft()]);
   const [active, setActive] = useState(true);
   const [editingId, setEditingId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -16,7 +34,13 @@ function Services() {
 
   const isFormValid = useMemo(() => {
     if (!name.trim()) return false;
-    return tasks.every((task) => task.title.trim());
+    return tasks.every((task) => {
+      if (!task.title.trim()) return false;
+      return (
+        toValidCurrency(task.laborHoursDefault) !== null &&
+        toValidCurrency(task.laborChargeDefault) !== null
+      );
+    });
   }, [name, tasks]);
 
   const loadServices = async () => {
@@ -46,7 +70,7 @@ function Services() {
 
   const resetForm = () => {
     setName("");
-    setTasks([{ title: "", isRequired: false }]);
+    setTasks([createTaskDraft()]);
     setActive(true);
     setEditingId("");
   };
@@ -60,7 +84,7 @@ function Services() {
   };
 
   const addTaskRow = () => {
-    setTasks((prev) => [...prev, { title: "", isRequired: false }]);
+    setTasks((prev) => [...prev, createTaskDraft()]);
   };
 
   const removeTaskRow = (index) => {
@@ -74,10 +98,19 @@ function Services() {
     setError("");
     const payload = {
       name: name.trim(),
-      tasks: tasks.map((task) => ({
-        title: task.title.trim(),
-        isRequired: Boolean(task.isRequired),
-      })),
+      tasks: tasks.map((task) => {
+        const normalizedTask = {
+          title: task.title.trim(),
+          isRequired: Boolean(task.isRequired),
+          laborHoursDefault: toValidCurrency(task.laborHoursDefault) ?? 0,
+          laborChargeDefault: toValidCurrency(task.laborChargeDefault) ?? 0,
+          isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
+        };
+        if (task._id) {
+          normalizedTask._id = task._id;
+        }
+        return normalizedTask;
+      }),
       active,
     };
     try {
@@ -112,10 +145,14 @@ function Services() {
     setTasks(
       service.tasks?.length
         ? service.tasks.map((task) => ({
+            _id: task._id || task.id || "",
             title: task.title || "",
             isRequired: Boolean(task.isRequired),
+            laborHoursDefault: String(task.laborHoursDefault ?? 0),
+            laborChargeDefault: String(task.laborChargeDefault ?? 0),
+            isBillable: task.isBillable !== undefined ? Boolean(task.isBillable) : true,
           }))
-        : [{ title: "", isRequired: false }]
+        : [createTaskDraft()]
     );
     setActive(service.active !== undefined ? Boolean(service.active) : true);
   };
@@ -205,6 +242,34 @@ function Services() {
                     required
                   />
                 </div>
+                <div className="services-field services-field--number">
+                  <label htmlFor={`task-hours-${index}`}>Labor Hours</label>
+                  <input
+                    id={`task-hours-${index}`}
+                    type="number"
+                    min="0"
+                    step="0.25"
+                    value={task.laborHoursDefault}
+                    onChange={(event) =>
+                      handleTaskChange(index, "laborHoursDefault", event.target.value)
+                    }
+                    required
+                  />
+                </div>
+                <div className="services-field services-field--number">
+                  <label htmlFor={`task-charge-${index}`}>Labor Charge (LKR)</label>
+                  <input
+                    id={`task-charge-${index}`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={task.laborChargeDefault}
+                    onChange={(event) =>
+                      handleTaskChange(index, "laborChargeDefault", event.target.value)
+                    }
+                    required
+                  />
+                </div>
                 <label className="services-toggle">
                   <input
                     type="checkbox"
@@ -214,6 +279,16 @@ function Services() {
                     }
                   />
                   Required
+                </label>
+                <label className="services-toggle">
+                  <input
+                    type="checkbox"
+                    checked={task.isBillable}
+                    onChange={(event) =>
+                      handleTaskChange(index, "isBillable", event.target.checked)
+                    }
+                  />
+                  Billable
                 </label>
                 <button
                   type="button"

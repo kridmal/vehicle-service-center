@@ -157,7 +157,7 @@
 .inventory-table table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 980px;
+  min-width: 1180px;
   background: #ffffff;
 }
 
@@ -281,6 +281,10 @@
   gap: 16px;
 }
 
+.inventory-modal--discount {
+  width: min(860px, 100%);
+}
+
 .inventory-modal__head {
   display: flex;
   align-items: flex-start;
@@ -334,7 +338,7 @@
   color: #64748b;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .inventory-grid--two {
     grid-template-columns: 1fr;
   }
@@ -354,5 +358,22 @@
   .inventory-modal__row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .inventory-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .inventory-card {
+    padding: 14px;
+  }
+
+  .inventory-card__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
   }
 }

@@ -4,6 +4,7 @@ import PageHeader from "../../components/PageHeader.jsx";
 import { useLocalStorageState } from "../../hooks/useLocalStorageState.js";
 import api from "../../services/api.js";
 import { getJobCards } from "../../utils/storage.js";
+import { formatFreeLaborRewardLabel } from "../../utils/loyaltyPricing.js";
 import "./InvoiceView.css";
 
 function InvoiceView() {
@@ -14,7 +15,6 @@ function InvoiceView() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasPrinted, setHasPrinted] = useState(false);
   const [localJobCards, setLocalJobCards] = useState([]);
-  const [serviceTypes, setServiceTypes] = useState([]);
   const [customers] = useLocalStorageState("ksc_customers", []);
   const [vehicles] = useLocalStorageState("ksc_vehicles", []);
   const navigate = useNavigate();
@@ -42,18 +42,6 @@ function InvoiceView() {
     };
     loadInvoice();
   }, [id, navigate]);
-
-  useEffect(() => {
-    const loadServices = async () => {
-      try {
-        const { data } = await api.get("/services");
-        setServiceTypes(Array.isArray(data) ? data : []);
-      } catch (error) {
-        setServiceTypes([]);
-      }
-    };
-    loadServices();
-  }, []);
 
   useEffect(() => {
     try {
@@ -86,14 +74,6 @@ function InvoiceView() {
       ) || null
     );
   }, [invoice, localJobCards]);
-  const serviceTypeMap = useMemo(() => {
-    return new Map(
-      serviceTypes.map((service) => [
-        String(service._id || service.id),
-        service,
-      ])
-    );
-  }, [serviceTypes]);
   if (!invoice) {
     return (
       <div className="invoice-view">
@@ -148,19 +128,63 @@ function InvoiceView() {
     localVehicle?.model ||
     "-";
   const serviceEntries =
-    invoice.services ||
-    invoice.jobCardServices ||
-    localJobCard?.services ||
-    [];
-  const serviceList = Array.isArray(serviceEntries)
-    ? serviceEntries.filter(Boolean)
-    : [];
-  const resolveServiceName = (service) => {
-    const directName = service.serviceName || service.name;
-    if (directName) return directName;
-    const key = String(service.serviceType || service._id || service.id || "");
-    return serviceTypeMap.get(key)?.name || key || "Service";
+    (Array.isArray(invoice.jobCardServices) && invoice.jobCardServices.length > 0
+      ? invoice.jobCardServices
+      : Array.isArray(invoice.services) && invoice.services.length > 0
+      ? invoice.services
+      : Array.isArray(localJobCard?.services)
+      ? localJobCard.services
+      : []) || [];
+  const serviceList = Array.isArray(serviceEntries) ? serviceEntries.filter(Boolean) : [];
+
+  const isTaskSelected = (task) => {
+    if (!task || typeof task !== "object") return false;
+    if (task.selected !== undefined) return Boolean(task.selected);
+    if (task.completed !== undefined) return Boolean(task.completed);
+    return false;
   };
+
+  const isTaskBillable = (task) => {
+    if (!task || typeof task !== "object") return true;
+    if (task.billable !== undefined) return Boolean(task.billable);
+    if (task.isBillable !== undefined) return Boolean(task.isBillable);
+    return true;
+  };
+
+  const laborRowsFromInvoice = Array.isArray(invoice.laborItems)
+    ? invoice.laborItems
+        .map((item, index) => {
+          const description = String(
+            item?.description || item?.taskName || ""
+          ).trim();
+          if (!description) return null;
+          return {
+            id: `${item?.taskId || description}-${index}`,
+            description,
+            amount: Math.max(0, Number(item?.amount) || 0),
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  const laborRowsFromServices = serviceList.flatMap((service, serviceIndex) => {
+    const tasks = Array.isArray(service?.tasks) ? service.tasks : [];
+    return tasks
+      .map((task, taskIndex) => {
+        const taskName = String(task?.taskName || task?.title || "").trim();
+        if (!taskName) return null;
+        if (!isTaskSelected(task) || !isTaskBillable(task)) return null;
+        return {
+          id: `${service.serviceType || service._id || serviceIndex}-${taskName}-${taskIndex}`,
+          description: taskName,
+          amount: Math.max(0, Number(task?.laborCharge) || 0),
+        };
+      })
+      .filter(Boolean);
+  });
+
+  const laborRows =
+    laborRowsFromInvoice.length > 0 ? laborRowsFromInvoice : laborRowsFromServices;
 
   const isPaid = invoice.paymentStatus === "PAID";
   const paymentState =
@@ -177,17 +201,76 @@ function InvoiceView() {
       maximumFractionDigits: 2,
     }).format(number);
   };
-  const partsSubtotal = (invoice.partsUsed || []).reduce((sum, part) => {
+  const derivedPartsSubtotalOriginal = (invoice.partsUsed || []).reduce((sum, part) => {
     const qty = Number(part.quantity) || 0;
-    const unit = Number(part.unitPrice) || 0;
+    const unit =
+      Number(part.unitPriceOriginal) || Number(part.unitPrice) || 0;
+    const line =
+      Number(part.lineTotalOriginal) || (qty > 0 && unit > 0 ? qty * unit : 0);
+    return sum + line;
+  }, 0);
+  const derivedPartsDiscountTotal = (invoice.partsUsed || []).reduce(
+    (sum, part) => sum + (Number(part.lineDiscountTotal) || 0),
+    0
+  );
+  const derivedPartsSubtotalNet = (invoice.partsUsed || []).reduce((sum, part) => {
+    const qty = Number(part.quantity) || 0;
+    const unit =
+      Number(part.unitPriceNet) || Number(part.unitPrice) || 0;
     const line =
       Number(part.lineTotal) || (qty > 0 && unit > 0 ? qty * unit : 0);
     return sum + line;
   }, 0);
-  const laborCharges = Number(invoice.laborCharges) || 0;
-  const discountAmount = Number(invoice.discount) || 0;
+  const partsSubtotalOriginal =
+    invoice.subtotalPartsOriginal !== undefined &&
+    invoice.subtotalPartsOriginal !== null
+      ? Number(invoice.subtotalPartsOriginal) || 0
+      : derivedPartsSubtotalOriginal;
+  const partsDiscountTotal =
+    invoice.partsDiscountTotal !== undefined &&
+    invoice.partsDiscountTotal !== null
+      ? Number(invoice.partsDiscountTotal) || 0
+      : derivedPartsDiscountTotal;
+  const partsSubtotal =
+    invoice.subtotalParts !== undefined && invoice.subtotalParts !== null
+      ? Number(invoice.subtotalParts) || 0
+      : derivedPartsSubtotalNet;
+  const laborChargesOriginal =
+    invoice.laborChargesOriginal !== undefined &&
+    invoice.laborChargesOriginal !== null
+      ? Number(invoice.laborChargesOriginal) || 0
+      : Number(invoice.laborCharges) || 0;
+  const loyaltyLaborDiscount =
+    invoice.loyaltyLaborDiscount !== undefined &&
+    invoice.loyaltyLaborDiscount !== null
+      ? Number(invoice.loyaltyLaborDiscount) || 0
+      : Number(invoice.discount) || 0;
+  const laborChargesNet =
+    invoice.laborChargesNet !== undefined && invoice.laborChargesNet !== null
+      ? Number(invoice.laborChargesNet) || 0
+      : Math.max(laborChargesOriginal - loyaltyLaborDiscount, 0);
   const grandTotal =
-    Number(invoice.totalAmount) || partsSubtotal + laborCharges - discountAmount;
+    invoice.totalAmount !== undefined && invoice.totalAmount !== null
+      ? Number(invoice.totalAmount) || 0
+      : Math.max(partsSubtotal + laborChargesNet, 0);
+  const hasFreeLaborReward = (invoice.appliedRewards || []).some(
+    (reward) =>
+      String(reward.rewardType || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_") === "free_labor"
+  );
+
+  const formatRewardSummary = (reward) => {
+    const rewardType = String(reward?.rewardType || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (rewardType === "free_labor") {
+      return formatFreeLaborRewardLabel(reward);
+    }
+    return reward?.rewardType || "Reward";
+  };
 
   const finalizeInvoice = async () => {
     setIsSaving(true);
@@ -233,13 +316,10 @@ function InvoiceView() {
       <div className="invoice-shell">
         <header className="invoice-header">
           <div className="invoice-brand">
-            <div className="invoice-logo" aria-hidden="true">
-              Logo
-            </div>
             <div className="invoice-brand-details">
-              <h1>Service Center</h1>
-              <p>123 Service Lane, Colombo</p>
-              <p>+94 11 234 5678 · service@center.lk</p>
+              <h1>SENEVI AUTO CARE</h1>
+              <p>Mathawa, Wewagama</p>
+              <p>Tel - 0765336448</p>
             </div>
           </div>
           <div className="invoice-header-meta">
@@ -295,7 +375,7 @@ function InvoiceView() {
             <div className="invoice-info-row">
               <span>Vehicle</span>
               <strong>
-                {vehicleNumber} · {vehicleBrand} · {vehicleModel}
+                {vehicleNumber} - {vehicleBrand} - {vehicleModel}
               </strong>
             </div>
           </div>
@@ -314,21 +394,29 @@ function InvoiceView() {
                   <tr>
                     <th>Item Name</th>
                     <th className="table-right">Quantity</th>
-                    <th className="table-right">Unit Price</th>
-                    <th className="table-right">Line Total</th>
+                    <th className="table-right">Unit Price (Original)</th>
+                    <th className="table-right">Discount</th>
+                    <th className="table-right invoice-col-unit-net">Unit Price (Net)</th>
+                    <th className="table-right">Line Total (Net)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(invoice.partsUsed || []).map((part, index) => {
                     const qty = Number(part.quantity) || 0;
-                    const unit = Number(part.unitPrice) || 0;
-                    const line =
-                      Number(part.lineTotal) || (qty > 0 ? qty * unit : 0);
+                    const unitOriginal =
+                      Number(part.unitPriceOriginal) || Number(part.unitPrice) || 0;
+                    const discountLine = Number(part.lineDiscountTotal) || 0;
+                    const unitNet =
+                      Number(part.unitPriceNet) ||
+                      Math.max(0, (Number(part.lineTotal) || 0) / Math.max(1, qty));
+                    const line = Number(part.lineTotal) || (qty > 0 ? qty * unitNet : 0);
                     return (
                       <tr key={`${part.sku}-${index}`}>
                         <td>{part.itemName || "Part"}</td>
                         <td className="table-right">{qty || "-"}</td>
-                        <td className="table-right">{formatCurrency(unit)}</td>
+                        <td className="table-right">{formatCurrency(unitOriginal)}</td>
+                        <td className="table-right">-{formatCurrency(discountLine)}</td>
+                        <td className="table-right invoice-col-unit-net">{formatCurrency(unitNet)}</td>
                         <td className="table-right">{formatCurrency(line)}</td>
                       </tr>
                     );
@@ -341,47 +429,28 @@ function InvoiceView() {
 
         <section className="invoice-section">
           <div className="invoice-section-head">
-            <h2>Services & Tasks</h2>
+            <h2>Service & Labor Charges</h2>
           </div>
-          {serviceList.length === 0 ? (
-            <p className="invoice-muted">No services listed.</p>
+          {laborRows.length === 0 ? (
+            <p className="invoice-muted">No billable service tasks recorded.</p>
           ) : (
-            <div className="invoice-services">
-              {serviceList.map((service, index) => {
-                const tasks = Array.isArray(service.tasks)
-                  ? service.tasks.filter((task) => task?.title)
-                  : [];
-                return (
-                  <div
-                    key={`${service.serviceType || service._id || index}`}
-                    className="invoice-service-card"
-                  >
-                    <div className="invoice-service-head">
-                      <strong>
-                        {resolveServiceName(service)}
-                      </strong>
-                      <span>{tasks.length ? `${tasks.length} tasks` : "No tasks"}</span>
-                    </div>
-                    {tasks.length ? (
-                      <ul className="invoice-service-tasks">
-                        {tasks.map((task, taskIndex) => (
-                          <li key={`${task.title}-${taskIndex}`}>
-                            <span>{task.title}</span>
-                            <span>
-                              {task.completed ? "Completed" : "Pending"}
-                              {task.isRequired ? " · Required" : ""}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="invoice-muted">
-                        No tasks were recorded for this service.
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="invoice-table invoice-labor-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th className="table-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {laborRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.description}</td>
+                      <td className="table-right">{formatCurrency(row.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
@@ -390,28 +459,68 @@ function InvoiceView() {
           <div>
             <h2>Labor Charges</h2>
             <div className="invoice-labor">
-              <strong>{formatCurrency(laborCharges)}</strong>
+              <div className="invoice-summary-row">
+                <span>Labor Total</span>
+                <strong>{formatCurrency(laborChargesNet)}</strong>
+              </div>
               {invoice.laborDescription ? (
                 <p>{invoice.laborDescription}</p>
               ) : null}
             </div>
+
+            {invoice.appliedRewards?.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <h2>Loyalty Rewards</h2>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {invoice.appliedRewards.map((reward, idx) => (
+                    <div
+                      key={reward.ruleId || idx}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "4px 8px",
+                        background: "#f0fdf4",
+                        borderRadius: 4,
+                        border: "1px solid #bbf7d0",
+                        fontSize: 13,
+                      }}
+                    >
+                      <span>
+                        {reward.ruleName || "Loyalty Reward"}
+                        <span style={{ color: "#6b7280", marginLeft: 6, fontSize: 12 }}>
+                          ({formatRewardSummary(reward)})
+                        </span>
+                      </span>
+                      {reward.discountAmount > 0 && (
+                        <strong style={{ color: "#16a34a" }}>
+                          -{formatCurrency(reward.discountAmount)}
+                        </strong>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <div className="invoice-summary">
             <h2>Summary</h2>
             <div className="invoice-summary-row">
-              <span>Subtotal</span>
+              <span>Materials Subtotal (Original)</span>
+              <strong>{formatCurrency(partsSubtotalOriginal)}</strong>
+            </div>
+            <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
+              <span>Items Discount</span>
+              <strong>-{formatCurrency(partsDiscountTotal)}</strong>
+            </div>
+            <div className="invoice-summary-row">
+              <span>Materials Subtotal (After item discounts)</span>
               <strong>{formatCurrency(partsSubtotal)}</strong>
             </div>
             <div className="invoice-summary-row">
-              <span>Labor Charges</span>
-              <strong>{formatCurrency(laborCharges)}</strong>
+              <span>Labor Total</span>
+              <strong>{formatCurrency(laborChargesNet)}</strong>
             </div>
-            {discountAmount ? (
-              <div className="invoice-summary-row">
-                <span>Discount</span>
-                <strong>-{formatCurrency(discountAmount)}</strong>
-              </div>
-            ) : null}
             <div className="invoice-summary-total">
               <span>Grand Total</span>
               <strong>{formatCurrency(grandTotal)}</strong>
@@ -466,3 +575,4 @@ function InvoiceView() {
 }
 
 export default InvoiceView;
+
