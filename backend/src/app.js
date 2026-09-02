@@ -38,7 +38,24 @@ import { errorHandler, notFound } from "./middlewares/errorMiddleware.js";
 
 const app = express();
 
-app.use(cors());
+const devOrigins = ["http://localhost:5173", "http://localhost:4173"];
+const prodOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(",").map((o) => o.trim()).filter(Boolean)
+  : [];
+const allowedOrigins = new Set([...devOrigins, ...prodOrigins]);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      }
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get("/", (req, res) => {
