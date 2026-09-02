@@ -54,7 +54,6 @@ function JobCardNew() {
   const [selectedModelId, setSelectedModelId] = useState("");
   const [changeOwner, setChangeOwner] = useState(false);
   const [currentOwnerLocalId, setCurrentOwnerLocalId] = useState("");
-  const [confirmText, setConfirmText] = useState("");
   const [vehicleLookupError, setVehicleLookupError] = useState("");
   const [syncError, setSyncError] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
@@ -1253,7 +1252,6 @@ function JobCardNew() {
       setOwnerId("");
       setOwnerSearch("");
       setShowOwnerForm(false);
-      setConfirmText("");
     } catch (error) {
       handleAuthRedirect(error.response?.status);
       setSyncError(
@@ -1407,13 +1405,11 @@ function JobCardNew() {
   const ownerResolved = changeOwner
     ? Boolean(ownerId || (newCustomerName.trim() && newCustomerPhone.trim()))
     : Boolean(currentOwnerId);
-  const confirmReady = changeOwner ? confirmText === "CONFIRM" : true;
   const canSubmit =
     Boolean(
       vehicleId &&
         selectedServices.length > 0 &&
-        ownerResolved &&
-        confirmReady
+        ownerResolved
     ) && !isSyncing;
 
   return (
@@ -1818,29 +1814,15 @@ function JobCardNew() {
                     ) : null}
                   </div>
                 </div>
-                <div className="job-card-confirm">
-                  <div className="job-card-field">
-                    <label htmlFor="job-confirm">Type CONFIRM to proceed</label>
-                    <input
-                      id="job-confirm"
-                      value={confirmText}
-                      onChange={(event) => setConfirmText(event.target.value)}
-                      placeholder="CONFIRM"
-                    />
-                    <p className="job-card-helper">
-                      Case-sensitive: enter exactly <strong>CONFIRM</strong>.
-                    </p>
-                  </div>
-                  <div className="job-card-owner-actions">
-                    <button
-                      type="button"
-                      className="job-card-button job-card-button--primary"
-                      onClick={handleOwnerSave}
-                      disabled={confirmText.trim() !== "CONFIRM"}
-                    >
-                      OK - Save Owner
-                    </button>
-                  </div>
+                <div className="job-card-owner-actions">
+                  <button
+                    type="button"
+                    className="job-card-button job-card-button--primary"
+                    onClick={handleOwnerSave}
+                    disabled={!ownerResolved || isSyncing}
+                  >
+                    OK - Save Owner
+                  </button>
                 </div>
               </div>
             ) : null}
@@ -2061,7 +2043,7 @@ function JobCardNew() {
               )}
               {selectedServices.length > 0 ? (
                 <div className="job-card-labor-summary">
-                  <span>Labor Charges (Original)</span>
+                  <span>Labor Charges</span>
                   <strong>{formatMoney(laborChargesOriginal)}</strong>
                 </div>
               ) : null}

@@ -10,6 +10,8 @@ const partUsageSchema = new mongoose.Schema(
     unitPriceNet: { type: Number, min: 0, default: 0 },
     lineDiscountTotal: { type: Number, min: 0, default: 0 },
     lineTotal: { type: Number, min: 0, default: 0 },
+    jobCardDiscountType: { type: String, enum: ["fixed", "percent"], default: null },
+    jobCardDiscountValue: { type: Number, min: 0, default: 0 },
   },
   { _id: false }
 );

@@ -111,9 +111,9 @@ function SalesInvoiceView() {
       <div className="sales-invoice-shell">
         <header className="sales-invoice-header">
           <div>
-            <h1>Vehicle Service Center</h1>
-            <p>123 Service Lane, Colombo</p>
-            <p>+94 11 234 5678 - service@center.lk</p>
+            <h1>SENEVI AUTO CARE</h1>
+            <p>Mathawa, Wewagama</p>
+            <p>Tel - 0765336448</p>
           </div>
           <div className="sales-invoice-title-block">
             <button

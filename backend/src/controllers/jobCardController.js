@@ -509,11 +509,20 @@ const resolveLaborChargesOriginal = ({
 const normalizePartsUsed = (partsUsed = []) =>
   partsUsed
     .filter((part) => part && (part.sku || part.inventoryId))
-    .map((part) => ({
-      inventoryId: part.inventoryId,
-      sku: part.sku ? String(part.sku).trim().toUpperCase() : undefined,
-      quantity: toNumber(part.quantity),
-    }))
+    .map((part) => {
+      const normalized = {
+        inventoryId: part.inventoryId,
+        sku: part.sku ? String(part.sku).trim().toUpperCase() : undefined,
+        quantity: toNumber(part.quantity),
+      };
+      const jcType = part.jobCardDiscountType;
+      const jcValue = Math.max(0, toNumber(part.jobCardDiscountValue));
+      if ((jcType === "fixed" || jcType === "percent") && jcValue > 0) {
+        normalized.jobCardDiscountType = jcType;
+        normalized.jobCardDiscountValue = jcValue;
+      }
+      return normalized;
+    })
     .filter((part) => part.quantity > 0);
 
 const normalizeAppliedRewards = (appliedRewards = []) => {
@@ -638,7 +647,7 @@ const calculatePartsSubtotal = (partsUsed, inventoryContext) => {
     }
     const quantity = toNumber(part.quantity);
     const unitPriceOriginal = toNumber(item.sellingPrice);
-    const discountResult = computeItemDiscount({
+    const globalDiscount = computeItemDiscount({
       unitPriceOriginal,
       qty: quantity,
       discountEnabled: item.discountEnabled,
@@ -650,23 +659,48 @@ const calculatePartsSubtotal = (partsUsed, inventoryContext) => {
       cap: item.maxDiscountCap,
     });
 
+    // Stack job-card-specific discount on top of global discount
+    const jcType = part.jobCardDiscountType;
+    const jcValue = Math.max(0, toNumber(part.jobCardDiscountValue));
+    const hasJcDiscount = (jcType === "fixed" || jcType === "percent") && jcValue > 0;
+
+    let finalDiscountPerUnit = globalDiscount.discountPerUnit;
+    let finalUnitPriceNet = globalDiscount.unitPriceNet;
+    let finalLineDiscountTotal = globalDiscount.lineDiscountTotal;
+    let finalLineTotalNet = globalDiscount.lineTotalNet;
+
+    if (hasJcDiscount) {
+      const jcAdditional =
+        jcType === "percent"
+          ? unitPriceOriginal * (jcValue / 100)
+          : jcValue;
+      const combined = Math.min(globalDiscount.discountPerUnit + jcAdditional, unitPriceOriginal);
+      finalDiscountPerUnit = roundCurrency(combined);
+      finalUnitPriceNet = roundCurrency(Math.max(0, unitPriceOriginal - combined));
+      finalLineDiscountTotal = roundCurrency(combined * quantity);
+      finalLineTotalNet = roundCurrency(Math.max(0, finalUnitPriceNet * quantity));
+    }
+
     const lineTotalOriginal = roundCurrency(unitPriceOriginal * quantity);
     subtotalPartsOriginal = roundCurrency(subtotalPartsOriginal + lineTotalOriginal);
-    partsDiscountTotal = roundCurrency(
-      partsDiscountTotal + discountResult.lineDiscountTotal
-    );
-    subtotalParts = roundCurrency(subtotalParts + discountResult.lineTotalNet);
+    partsDiscountTotal = roundCurrency(partsDiscountTotal + finalLineDiscountTotal);
+    subtotalParts = roundCurrency(subtotalParts + finalLineTotalNet);
 
-    normalizedPartsUsed.push({
+    const normalizedPart = {
       inventoryId: item._id,
       sku: item.sku || part.sku || "",
       quantity,
       unitPriceOriginal: roundCurrency(unitPriceOriginal),
-      discountPerUnit: discountResult.discountPerUnit,
-      unitPriceNet: discountResult.unitPriceNet,
-      lineDiscountTotal: discountResult.lineDiscountTotal,
-      lineTotal: discountResult.lineTotalNet,
-    });
+      discountPerUnit: finalDiscountPerUnit,
+      unitPriceNet: finalUnitPriceNet,
+      lineDiscountTotal: finalLineDiscountTotal,
+      lineTotal: finalLineTotalNet,
+    };
+    if (hasJcDiscount) {
+      normalizedPart.jobCardDiscountType = jcType;
+      normalizedPart.jobCardDiscountValue = jcValue;
+    }
+    normalizedPartsUsed.push(normalizedPart);
   }
 
   return {

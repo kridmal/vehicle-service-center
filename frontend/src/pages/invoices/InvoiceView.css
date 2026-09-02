@@ -425,6 +425,16 @@
     padding: 0;
   }
 
+  /* Remove min-width so the table fits A4 width */
+  .invoice-table table {
+    min-width: 0;
+  }
+
+  /* Hide Unit Price (Net) column in print — redundant when Original, Discount, and Line Total are visible */
+  .invoice-col-unit-net {
+    display: none;
+  }
+
   table {
     page-break-inside: auto;
   }

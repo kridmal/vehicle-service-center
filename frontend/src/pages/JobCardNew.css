@@ -756,10 +756,6 @@
   gap: 12px;
 }
 
-.job-card-confirm .job-card-field input {
-  letter-spacing: 0.08em;
-}
-
 .job-card-button {
   border-radius: 10px;
   border: 1px solid transparent;

@@ -247,7 +247,7 @@ function Customers() {
                       ? new Date(customer.createdAt).toLocaleDateString()
                       : "-";
                     return (
-                      <tr key={customer._id}>
+                      <tr key={customer._id || customer.id}>
                         <td>{joinDate}</td>
                         <td>
                           <div className="customer-name">

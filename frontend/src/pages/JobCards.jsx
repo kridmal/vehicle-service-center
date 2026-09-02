@@ -61,6 +61,9 @@ function JobCards() {
   const [customTasks, setCustomTasks] = useState([]);
   const [customTaskStaffSearchTerms, setCustomTaskStaffSearchTerms] = useState({});
   const [customTaskStaffSearchResults, setCustomTaskStaffSearchResults] = useState({});
+  const [discountModal, setDiscountModal] = useState(null);
+  const [jcDiscountType, setJcDiscountType] = useState("fixed");
+  const [jcDiscountValue, setJcDiscountValue] = useState("");
   const navigate = useNavigate();
 
   const buildRewardSelectionKey = (reward) =>
@@ -217,8 +220,16 @@ function JobCards() {
   }, []);
 
   const lookup = useMemo(() => {
-    const customerMap = new Map(customers.map((c) => [c.id, c]));
-    const vehicleMap = new Map(vehicles.map((v) => [v.id, v]));
+    const customerMap = new Map();
+    for (const c of customers) {
+      if (c.id) customerMap.set(c.id, c);
+      if (c.mongoId && c.mongoId !== c.id) customerMap.set(c.mongoId, c);
+    }
+    const vehicleMap = new Map();
+    for (const v of vehicles) {
+      if (v.id) vehicleMap.set(v.id, v);
+      if (v.mongoId && v.mongoId !== v.id) vehicleMap.set(v.mongoId, v);
+    }
     const serviceMap = new Map(
       services.map((s) => [String(s._id || s.id), s])
     );
@@ -229,13 +240,17 @@ function JobCards() {
   const resolveOwnerMongoId = (job) => {
     const ownerId = resolveOwnerId(job);
     if (!ownerId) return "";
-    const customer = customers.find((entry) => entry.id === ownerId);
-    return customer?.mongoId || "";
+    const customer = customers.find(
+      (entry) => entry.id === ownerId || entry.mongoId === ownerId
+    );
+    return customer?.mongoId || ownerId;
   };
   const resolveVehicleMongoId = (job) => {
     if (!job?.vehicleId) return "";
-    const vehicle = vehicles.find((entry) => entry.id === job.vehicleId);
-    return vehicle?.mongoId || "";
+    const vehicle = vehicles.find(
+      (entry) => entry.id === job.vehicleId || entry.mongoId === job.vehicleId
+    );
+    return vehicle?.mongoId || job.vehicleId;
   };
 
   const statusCounts = useMemo(() => {
@@ -426,6 +441,9 @@ function JobCards() {
     setCustomTasks([]);
     setCustomTaskStaffSearchTerms({});
     setCustomTaskStaffSearchResults({});
+    setDiscountModal(null);
+    setJcDiscountType("fixed");
+    setJcDiscountValue("");
   };
 
   const toggleTaskCompletion = (serviceIndex, taskIndex) => {
@@ -750,7 +768,7 @@ function JobCards() {
           part.lineDiscountTotal !== undefined ||
           part.lineTotal !== undefined;
 
-        const discountResult = computeItemDiscount({
+        const globalDiscountResult = computeItemDiscount({
           unitPriceOriginal,
           qty: quantity,
           discountEnabled: item?.discountEnabled,
@@ -762,18 +780,45 @@ function JobCards() {
           cap: item?.maxDiscountCap,
         });
 
-        const discountPerUnit = hasSnapshot
+        // Global-only base (used for modal info display)
+        const globalDiscountPerUnit = hasSnapshot
           ? Number(part.discountPerUnit) || 0
-          : discountResult.discountPerUnit;
-        const unitPriceNet = hasSnapshot
-          ? Number(part.unitPriceNet) || 0
-          : discountResult.unitPriceNet;
-        const lineDiscountTotal = hasSnapshot
-          ? Number(part.lineDiscountTotal) || 0
-          : discountResult.lineDiscountTotal;
-        const lineTotalNet = hasSnapshot
-          ? Number(part.lineTotal) || 0
-          : discountResult.lineTotalNet;
+          : globalDiscountResult.discountPerUnit;
+
+        // Job-card-specific discount stacking
+        const jcType = part.jobCardDiscountType;
+        const jcVal = Math.max(0, Number(part.jobCardDiscountValue) || 0);
+        const hasJcDiscount = (jcType === "fixed" || jcType === "percent") && jcVal > 0;
+
+        let discountPerUnit, unitPriceNet, lineDiscountTotal, lineTotalNet;
+        if (hasJcDiscount) {
+          const rc = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
+          const jcAdditional =
+            jcType === "percent"
+              ? unitPriceOriginal * (jcVal / 100)
+              : jcVal;
+          const combined = Math.min(
+            globalDiscountResult.discountPerUnit + jcAdditional,
+            unitPriceOriginal
+          );
+          discountPerUnit = rc(combined);
+          unitPriceNet = rc(Math.max(0, unitPriceOriginal - combined));
+          lineDiscountTotal = rc(combined * quantity);
+          lineTotalNet = rc(unitPriceNet * quantity);
+        } else {
+          discountPerUnit = hasSnapshot
+            ? Number(part.discountPerUnit) || 0
+            : globalDiscountResult.discountPerUnit;
+          unitPriceNet = hasSnapshot
+            ? Number(part.unitPriceNet) || 0
+            : globalDiscountResult.unitPriceNet;
+          lineDiscountTotal = hasSnapshot
+            ? Number(part.lineDiscountTotal) || 0
+            : globalDiscountResult.lineDiscountTotal;
+          lineTotalNet = hasSnapshot
+            ? Number(part.lineTotal) || 0
+            : globalDiscountResult.lineTotalNet;
+        }
 
         return {
           key: part.inventoryId || part.sku,
@@ -783,11 +828,14 @@ function JobCards() {
           unit: item?.unit || "",
           quantity,
           unitPriceOriginal,
+          globalDiscountPerUnit,
           discountPerUnit,
           unitPriceNet,
           lineDiscountTotal,
           lineTotalOriginal: unitPriceOriginal * quantity,
           lineTotalNet,
+          jobCardDiscountType: part.jobCardDiscountType || null,
+          jobCardDiscountValue: Number(part.jobCardDiscountValue) || 0,
         };
       }),
     [inventoryItems, partsUsed]
@@ -902,6 +950,46 @@ function JobCards() {
           String(part.sku) !== identifier
       )
     );
+  };
+
+  const openDiscountModal = (partKey) => {
+    const row = partPricingRows.find((r) => String(r.key) === String(partKey));
+    const stored = partsUsed.find(
+      (p) => String(p.inventoryId || p.sku) === String(partKey)
+    );
+    if (!row) return;
+    setDiscountModal({
+      key: partKey,
+      itemName: row.itemName,
+      unitPriceOriginal: row.unitPriceOriginal,
+      globalDiscountPerUnit: row.globalDiscountPerUnit,
+    });
+    setJcDiscountType(stored?.jobCardDiscountType || "fixed");
+    setJcDiscountValue(
+      stored?.jobCardDiscountValue ? String(stored.jobCardDiscountValue) : ""
+    );
+  };
+
+  const closeDiscountModal = () => {
+    setDiscountModal(null);
+    setJcDiscountType("fixed");
+    setJcDiscountValue("");
+  };
+
+  const applyDiscountModal = () => {
+    if (!discountModal) return;
+    const value = Number(jcDiscountValue);
+    setPartsUsed((prev) =>
+      prev.map((p) => {
+        if (String(p.inventoryId || p.sku) !== String(discountModal.key)) return p;
+        if (!jcDiscountValue || value <= 0) {
+          const { jobCardDiscountType: _t, jobCardDiscountValue: _v, ...rest } = p;
+          return rest;
+        }
+        return { ...p, jobCardDiscountType: jcDiscountType, jobCardDiscountValue: value };
+      })
+    );
+    closeDiscountModal();
   };
 
   const selectSingleReward = (reward) => {
@@ -1833,23 +1921,32 @@ function JobCards() {
                             <span>{part.brand}</span>
                             <span>{part.variant}</span>
                             <span>{formatMoney(part.unitPriceOriginal)}</span>
-                            <span>-{formatMoney(part.lineDiscountTotal)}</span>
+                            <span className={part.jobCardDiscountType ? "materials-discount--jc" : ""}>
+                              -{formatMoney(part.lineDiscountTotal)}
+                            </span>
                             <span>{formatMoney(part.unitPriceNet)}</span>
                             <span>
                               {part.quantity} {part.unit || ""}
                             </span>
                             <span>{formatMoney(part.lineTotalNet)}</span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                removePartUsage(
-                                  String(part.key)
-                                )
-                              }
-                              disabled={isReadOnly}
-                            >
-                              Remove
-                            </button>
+                            <div className="materials-table__actions">
+                              <button
+                                type="button"
+                                className={`materials-btn-discount${part.jobCardDiscountType ? " is-active" : ""}`}
+                                onClick={() => openDiscountModal(String(part.key))}
+                                disabled={isReadOnly}
+                                title="Set job-card discount"
+                              >
+                                %
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removePartUsage(String(part.key))}
+                                disabled={isReadOnly}
+                              >
+                                Remove
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
@@ -1877,8 +1974,8 @@ function JobCards() {
                   Labor is calculated from the service task rows.
                 </p>
                 <div className="job-card-labor-mini">
-                  <span>Labor Charges (Original)</span>
-                  <strong>{formatMoney(pricingPreview.laborChargesOriginal)}</strong>
+                  <span>Labor Charges</span>
+                  <strong>{formatMoney(pricingPreview.laborChargesNet)}</strong>
                 </div>
               </div>
 
@@ -1997,18 +2094,7 @@ function JobCards() {
                   <strong>{formatMoney(pricingPreview.subtotalParts)}</strong>
                 </div>
                 <div className="job-card-pricing__row">
-                  <span>Labor Charges (Original)</span>
-                  <strong>{formatMoney(pricingPreview.laborChargesOriginal)}</strong>
-                </div>
-                {pricingPreview.selectedReward?.rewardType === "free_labor" ||
-                pricingPreview.loyaltyLaborDiscount > 0 ? (
-                  <div className="job-card-pricing__row is-discount">
-                    <span>Loyalty Discount (Free Labor)</span>
-                    <strong>-{formatMoney(pricingPreview.loyaltyLaborDiscount)}</strong>
-                  </div>
-                ) : null}
-                <div className="job-card-pricing__row">
-                  <span>Labor Charges (Net)</span>
+                  <span>Labor Total</span>
                   <strong>{formatMoney(pricingPreview.laborChargesNet)}</strong>
                 </div>
                 <div className="job-card-pricing__row is-grand">
@@ -2110,6 +2196,91 @@ function JobCards() {
               </button>
             </div>
           </div>
+
+          {/* Job-card-specific discount modal */}
+          {discountModal ? (
+            <div className="jc-discount-overlay" role="dialog" aria-modal="true">
+              <div className="jc-discount-card">
+                <h3 className="jc-discount-card__title">
+                  Set Job-Card Discount
+                  <span className="jc-discount-card__item">{discountModal.itemName}</span>
+                </h3>
+
+                <div className="jc-discount-card__info">
+                  <div>
+                    <span>Unit Price</span>
+                    <strong>{formatMoney(discountModal.unitPriceOriginal)}</strong>
+                  </div>
+                  <div>
+                    <span>Global Discount</span>
+                    <strong>{formatMoney(discountModal.globalDiscountPerUnit)} / unit</strong>
+                  </div>
+                </div>
+
+                <div className="jc-discount-card__type-toggle">
+                  <button
+                    type="button"
+                    className={jcDiscountType === "fixed" ? "is-active" : ""}
+                    onClick={() => setJcDiscountType("fixed")}
+                  >
+                    Fixed (LKR)
+                  </button>
+                  <button
+                    type="button"
+                    className={jcDiscountType === "percent" ? "is-active" : ""}
+                    onClick={() => setJcDiscountType("percent")}
+                  >
+                    Percent (%)
+                  </button>
+                </div>
+
+                <div className="jc-discount-card__input-row">
+                  <label htmlFor="jc-discount-value">
+                    {jcDiscountType === "fixed" ? "Amount (LKR)" : "Percentage (%)"}
+                  </label>
+                  <input
+                    id="jc-discount-value"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder={jcDiscountType === "fixed" ? "e.g. 300" : "e.g. 10"}
+                    value={jcDiscountValue}
+                    onChange={(e) => setJcDiscountValue(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+
+                <div className="jc-discount-card__actions">
+                  <button
+                    type="button"
+                    className="jc-discount-card__btn-clear"
+                    onClick={() => {
+                      setPartsUsed((prev) =>
+                        prev.map((p) => {
+                          if (String(p.inventoryId || p.sku) !== String(discountModal.key)) return p;
+                          const { jobCardDiscountType: _t, jobCardDiscountValue: _v, ...rest } = p;
+                          return rest;
+                        })
+                      );
+                      closeDiscountModal();
+                    }}
+                  >
+                    Clear
+                  </button>
+                  <button type="button" onClick={closeDiscountModal}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="jc-discount-card__btn-apply"
+                    onClick={applyDiscountModal}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

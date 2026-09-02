@@ -316,13 +316,10 @@ function InvoiceView() {
       <div className="invoice-shell">
         <header className="invoice-header">
           <div className="invoice-brand">
-            <div className="invoice-logo" aria-hidden="true">
-              Logo
-            </div>
             <div className="invoice-brand-details">
-              <h1>Service Center</h1>
-              <p>123 Service Lane, Colombo</p>
-              <p>+94 11 234 5678 - service@center.lk</p>
+              <h1>SENEVI AUTO CARE</h1>
+              <p>Mathawa, Wewagama</p>
+              <p>Tel - 0765336448</p>
             </div>
           </div>
           <div className="invoice-header-meta">
@@ -399,7 +396,7 @@ function InvoiceView() {
                     <th className="table-right">Quantity</th>
                     <th className="table-right">Unit Price (Original)</th>
                     <th className="table-right">Discount</th>
-                    <th className="table-right">Unit Price (Net)</th>
+                    <th className="table-right invoice-col-unit-net">Unit Price (Net)</th>
                     <th className="table-right">Line Total (Net)</th>
                   </tr>
                 </thead>
@@ -419,7 +416,7 @@ function InvoiceView() {
                         <td className="table-right">{qty || "-"}</td>
                         <td className="table-right">{formatCurrency(unitOriginal)}</td>
                         <td className="table-right">-{formatCurrency(discountLine)}</td>
-                        <td className="table-right">{formatCurrency(unitNet)}</td>
+                        <td className="table-right invoice-col-unit-net">{formatCurrency(unitNet)}</td>
                         <td className="table-right">{formatCurrency(line)}</td>
                       </tr>
                     );
@@ -463,17 +460,7 @@ function InvoiceView() {
             <h2>Labor Charges</h2>
             <div className="invoice-labor">
               <div className="invoice-summary-row">
-                <span>Labor Subtotal (Original)</span>
-                <strong>{formatCurrency(laborChargesOriginal)}</strong>
-              </div>
-              {hasFreeLaborReward || loyaltyLaborDiscount > 0 ? (
-                <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
-                  <span>Loyalty Discount (Labor)</span>
-                  <strong>-{formatCurrency(loyaltyLaborDiscount)}</strong>
-                </div>
-              ) : null}
-              <div className="invoice-summary-row">
-                <span>Labor Total (Net)</span>
+                <span>Labor Total</span>
                 <strong>{formatCurrency(laborChargesNet)}</strong>
               </div>
               {invoice.laborDescription ? (
@@ -531,24 +518,7 @@ function InvoiceView() {
               <strong>{formatCurrency(partsSubtotal)}</strong>
             </div>
             <div className="invoice-summary-row">
-              <span>Labor Subtotal (Original)</span>
-              <strong>{formatCurrency(laborChargesOriginal)}</strong>
-            </div>
-            {hasFreeLaborReward || loyaltyLaborDiscount > 0 ? (
-              <div className="invoice-summary-row" style={{ color: "#16a34a" }}>
-                <span>
-                  Loyalty Discount (Labor)
-                  {invoice.appliedRewards?.length > 0 && (
-                    <small style={{ display: "block", fontSize: 11, color: "#6b7280" }}>
-                      {invoice.appliedRewards.map((r) => r.ruleName).filter(Boolean).join(", ")}
-                    </small>
-                  )}
-                </span>
-                <strong>-{formatCurrency(loyaltyLaborDiscount)}</strong>
-              </div>
-            ) : null}
-            <div className="invoice-summary-row">
-              <span>Labor Total (Net)</span>
+              <span>Labor Total</span>
               <strong>{formatCurrency(laborChargesNet)}</strong>
             </div>
             <div className="invoice-summary-total">
